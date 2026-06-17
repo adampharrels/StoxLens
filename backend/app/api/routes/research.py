@@ -56,7 +56,7 @@ def _build_response(ticker: str, df, signals: dict, report) -> ResearchResponse:
 
 
 @router.post("/{ticker}/generate", response_model=ResearchResponse)
-def generate_research(ticker: str, db: Session = Depends(get_db)) -> ResearchResponse:
+def generate_research(ticker: str, db: Session | None = Depends(get_db)) -> ResearchResponse:
     df = fetch_price_data(ticker)
     df = clean_price_data(df)
     signals = calculate_signals(df)
@@ -76,7 +76,7 @@ def generate_research(ticker: str, db: Session = Depends(get_db)) -> ResearchRes
 
 
 @router.get("/{ticker}", response_model=ResearchResponse)
-def get_research(ticker: str, db: Session = Depends(get_db)) -> ResearchResponse:
+def get_research(ticker: str, db: Session | None = Depends(get_db)) -> ResearchResponse:
     df = clean_price_data(fetch_price_data(ticker))
     signals = calculate_signals(df)
     quality = assess_data_quality(df)
