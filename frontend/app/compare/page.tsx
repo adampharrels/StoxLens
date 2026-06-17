@@ -1,6 +1,6 @@
 import { CompareTable } from "@/components/compare/CompareTable";
 import { ApiUnavailable } from "@/components/layout/ApiUnavailable";
-import { getCompare } from "@/lib/api";
+import { ApiError, getCompare } from "@/lib/api";
 
 export default async function ComparePage() {
   try {
@@ -11,7 +11,10 @@ export default async function ComparePage() {
         <CompareTable data={data} />
       </div>
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return <ApiUnavailable title="Compare" message={error.message} />;
+    }
     return <ApiUnavailable title="Compare" />;
   }
 }

@@ -2,10 +2,21 @@ import type { ReportListItem, ResearchResponse, SignalSnapshot } from "@/lib/typ
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`API request failed: ${res.status}`);
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.detail ?? `API request failed: ${res.status}`);
   }
   return res.json();
 }
@@ -13,7 +24,8 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { method: "POST", cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`API request failed: ${res.status}`);
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.detail ?? `API request failed: ${res.status}`);
   }
   return res.json();
 }
