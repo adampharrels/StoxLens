@@ -1,0 +1,89 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #F5F4F1;
+  color: #1A1916;
+  font-family: "Inter", sans-serif;
+  font-size: 13px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #0B6E4F;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  color: #8C8A84;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #141412;
+    color: #E8E6E0;
+  }
+
+  .bg-page {
+    background-color: #141412;
+  }
+
+  .bg-surface {
+    background-color: #1C1B18;
+  }
+
+  .bg-subtle {
+    background-color: #2E2D29;
+  }
+
+  .border-border {
+    border-color: #2E2D29;
+  }
+
+  .text-primary {
+    color: #E8E6E0;
+  }
+
+  .text-secondary {
+    color: #B8B4AC;
+  }
+
+  .text-muted {
+    color: #8C8A84;
+  }
+}
