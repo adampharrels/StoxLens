@@ -1,8 +1,10 @@
 "use client";
 
 import { ArrowRight, Search } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent } from "react";
+import { starterTickers } from "@/lib/tickers";
 
 export default function ResearchIndexPage() {
   const router = useRouter();
@@ -34,6 +36,13 @@ export default function ResearchIndexPage() {
             <ArrowRight className="h-4 w-4" />
           </button>
         </form>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {starterTickers.map((ticker) => (
+            <Link key={ticker} href={`/research/${ticker}`} className="border border-border px-2 py-1 font-mono text-xs hover:bg-subtle">
+              {ticker}
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );

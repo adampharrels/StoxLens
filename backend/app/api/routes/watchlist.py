@@ -6,7 +6,7 @@ router = APIRouter()
 @router.get("")
 def get_watchlist() -> list[dict[str, str]]:
     return [
-        {"ticker": "BHP.AX", "signal": "↑ Positive"},
-        {"ticker": "CBA.AX", "signal": "→ Neutral"},
-        {"ticker": "RIO.AX", "signal": "↓ Weak"},
+        {"ticker": "AAPL", "signal": "↑ Positive"},
+        {"ticker": "MSFT", "signal": "→ Neutral"},
+        {"ticker": "IBM", "signal": "→ Neutral"},
     ]

@@ -4,6 +4,7 @@ import { ArrowRight, FileText, Search, Table2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent } from "react";
+import { starterTickers } from "@/lib/tickers";
 
 const workflow = [
   {
@@ -64,6 +65,14 @@ export default function Home() {
             </button>
           </form>
 
+          <div className="mt-3 flex max-w-[520px] flex-wrap gap-2">
+            {starterTickers.map((ticker) => (
+              <Link key={ticker} href={`/research/${ticker}`} className="border border-border px-2 py-1 font-mono text-xs hover:bg-subtle">
+                {ticker}
+              </Link>
+            ))}
+          </div>
+
           <div className="mt-7">
             <div className="label mb-2">Workspace</div>
             <div className="border-t border-border">
@@ -97,7 +106,7 @@ export default function Home() {
             </div>
             <div className="flex justify-between border-b border-border py-2 text-sm">
               <span className="text-secondary">Data</span>
-              <span>Yahoo Finance</span>
+              <span>Alpha Vantage</span>
             </div>
             <div className="flex justify-between border-b border-border py-2 text-sm">
               <span className="text-secondary">Prompt</span>

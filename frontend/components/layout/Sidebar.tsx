@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getWatchlist } from "@/lib/api";
+import { starterTickers } from "@/lib/tickers";
 
 const nav = [
   { href: "/", label: "Home" },
@@ -12,16 +13,16 @@ const nav = [
   { href: "/reports", label: "Reports" }
 ];
 
+const defaultWatchlist = starterTickers.map((ticker) => ({ ticker, signal: "→ Neutral" }));
+
 export function Sidebar() {
   const pathname = usePathname();
-  const [watchlist, setWatchlist] = useState<{ ticker: string; signal: string }[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [watchlist, setWatchlist] = useState<{ ticker: string; signal: string }[]>(defaultWatchlist);
 
   useEffect(() => {
     getWatchlist()
       .then(setWatchlist)
-      .catch(() => setWatchlist([]))
-      .finally(() => setLoaded(true));
+      .catch(() => setWatchlist(defaultWatchlist));
   }, []);
 
   return (
@@ -53,7 +54,6 @@ export function Sidebar() {
                 <span className="text-xs text-secondary">{item.signal}</span>
               </Link>
             ))}
-          {loaded && watchlist.length === 0 && <div className="py-1 text-xs text-muted">No watchlist loaded</div>}
         </div>
       </div>
     </aside>
