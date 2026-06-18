@@ -1,5 +1,10 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from app.api.routes import compare, reports, research, watchlist
 from app.db.session import init_db

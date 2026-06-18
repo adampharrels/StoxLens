@@ -3,6 +3,7 @@ from collections.abc import Generator
 from typing import Any
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Base
@@ -14,8 +15,15 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if e
 
 
 def init_db() -> None:
+    global SessionLocal, engine
     if engine:
-        Base.metadata.create_all(bind=engine)
+        try:
+            Base.metadata.create_all(bind=engine)
+        except SQLAlchemyError as exc:
+            print(f"Database unavailable; using in-memory report storage. Reason: {exc}")
+            engine.dispose()
+            engine = None
+            SessionLocal = None
 
 
 def get_db() -> Generator[Session | None, None, None]:
