@@ -58,6 +58,11 @@ class ResearchResponse(BaseModel):
     sector: str
     price: float
     price_change_pct: float
+    data_source: str
+    fetched_at: datetime
+    trading_days: int
+    prompt_version: str
+    model_used: str
     signals: SignalSnapshotOut
     latest_report: ResearchReportOut | None
     price_history: list[PricePoint]

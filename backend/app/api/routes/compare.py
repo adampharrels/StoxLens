@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from app.services.market_data import (
     InsufficientPriceDataError,
     MarketDataError,
+    RateLimitError,
     TickerNotFoundError,
     assess_data_quality,
     clean_price_data,
@@ -23,6 +24,8 @@ def compare(tickers: str = "AAPL") -> dict[str, dict]:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except InsufficientPriceDataError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RateLimitError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         except MarketDataError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         signals = calculate_signals(df)

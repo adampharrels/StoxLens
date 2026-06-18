@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -7,11 +9,13 @@ from app.services.llm import MODEL_USED, PROMPT_VERSION, build_prompt, call_llm,
 from app.services.market_data import (
     InsufficientPriceDataError,
     MarketDataError,
+    RateLimitError,
     TickerNotFoundError,
     assess_data_quality,
     clean_price_data,
     fetch_company_metadata,
     fetch_price_data,
+    market_data_source,
 )
 from app.services.reports import latest_report, report_to_schema, save_report
 from app.services.signals import calculate_signals
@@ -45,6 +49,11 @@ def _build_response(ticker: str, df, signals: dict, report, meta: dict[str, str]
         sector=meta["sector"],
         price=float(close.iloc[-1]),
         price_change_pct=price_change_pct,
+        data_source=market_data_source(),
+        fetched_at=datetime.utcnow(),
+        trading_days=len(df),
+        prompt_version=PROMPT_VERSION,
+        model_used=MODEL_USED,
         signals=SignalSnapshotOut.model_validate(signals),
         latest_report=report_to_schema(report) if report else None,
         price_history=_history(df),
@@ -87,5 +96,7 @@ def _load_clean_prices(ticker: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientPriceDataError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except MarketDataError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

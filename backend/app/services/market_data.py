@@ -1,8 +1,10 @@
+import os
 from datetime import datetime, timedelta
 
 import pandas as pd
 from requests import HTTPError
 
+ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 YAHOO_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -21,7 +23,19 @@ class MarketDataError(Exception):
     pass
 
 
+class RateLimitError(MarketDataError):
+    pass
+
+
 class TickerNotFoundError(MarketDataError):
+    pass
+
+
+class AlphaVantageRateLimitError(RateLimitError):
+    pass
+
+
+class YahooRateLimitError(RateLimitError):
     pass
 
 
@@ -35,9 +49,118 @@ def fetch_price_data(ticker: str) -> pd.DataFrame:
     if cached and datetime.utcnow() - cached[0] < CACHE_TTL:
         return cached[1].copy()
 
-    df = _fetch_price_data_from_chart_api(key)
+    df = _fetch_price_data(key)
     _price_cache[key] = (datetime.utcnow(), df.copy())
     return df
+
+
+def _fetch_price_data(ticker: str) -> pd.DataFrame:
+    if not _alphavantage_api_key():
+        return _fetch_price_data_from_chart_api(ticker)
+
+    try:
+        return _fetch_price_data_from_alphavantage(ticker)
+    except MarketDataError as alpha_error:
+        try:
+            return _fetch_price_data_from_chart_api(ticker)
+        except TickerNotFoundError as yahoo_error:
+            raise TickerNotFoundError(f"{alpha_error}. Yahoo fallback also found no data: {yahoo_error}") from yahoo_error
+        except RateLimitError as yahoo_error:
+            raise RateLimitError(f"{alpha_error}. Yahoo fallback is rate-limited: {yahoo_error}") from yahoo_error
+        except MarketDataError as yahoo_error:
+            raise MarketDataError(
+                f"Alpha Vantage failed for {ticker.upper()} ({_alphavantage_symbol(ticker)}): {alpha_error}. "
+                f"Yahoo fallback also failed: {yahoo_error}"
+            ) from yahoo_error
+
+
+def _alphavantage_api_key() -> str | None:
+    return os.getenv("ALPHAVANTAGE_API_KEY") or os.getenv("ALPHA_VANTAGE_API_KEY")
+
+
+def market_data_source() -> str:
+    return "Alpha Vantage" if _alphavantage_api_key() else "Yahoo Finance"
+
+
+def _alphavantage_symbol(ticker: str) -> str:
+    if ticker.endswith(".AX"):
+        return f"{ticker[:-3]}.AUS"
+    return ticker
+
+
+def _fetch_price_data_from_alphavantage(ticker: str) -> pd.DataFrame:
+    api_key = _alphavantage_api_key()
+    if not api_key:
+        raise MarketDataError("ALPHAVANTAGE_API_KEY is not configured")
+
+    symbol = _alphavantage_symbol(ticker)
+    payload = _get_alphavantage_payload(
+        {
+            "function": "TIME_SERIES_DAILY",
+            "symbol": symbol,
+            "outputsize": os.getenv("ALPHAVANTAGE_OUTPUTSIZE", "compact"),
+            "apikey": api_key,
+        }
+    )
+    return _alphavantage_time_series_to_frame(ticker, symbol, payload)
+
+
+def _get_alphavantage_payload(params: dict[str, str]) -> dict:
+    try:
+        import requests
+
+        response = requests.get(ALPHAVANTAGE_URL, params=params, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        raise MarketDataError("Could not fetch Alpha Vantage data") from exc
+
+    if "Error Message" in payload:
+        raise TickerNotFoundError(payload["Error Message"])
+
+    note = payload.get("Note") or payload.get("Information")
+    if note:
+        lowered = str(note).lower()
+        if "rate limit" in lowered or "free api requests" in lowered:
+            raise AlphaVantageRateLimitError(str(note))
+        raise MarketDataError(str(note))
+
+    return payload
+
+
+def _alphavantage_time_series_to_frame(ticker: str, symbol: str, payload: dict) -> pd.DataFrame:
+    series = payload.get("Time Series (Daily)")
+    if not series:
+        raise TickerNotFoundError(f"No Alpha Vantage daily price data found for {ticker.upper()} ({symbol})")
+
+    rows = []
+    for date, values in series.items():
+        rows.append(
+            {
+                "Date": date,
+                "Open": _float_value(values, "1. open"),
+                "High": _float_value(values, "2. high"),
+                "Low": _float_value(values, "3. low"),
+                "Close": _float_value(values, "4. close"),
+                "Volume": _int_value(values, "6. volume") or _int_value(values, "5. volume"),
+                "Adj Close": _float_value(values, "5. adjusted close") or _float_value(values, "4. close"),
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.set_index("Date").sort_index()
+    return df
+
+
+def _float_value(values: dict, key: str) -> float | None:
+    raw = values.get(key)
+    return float(raw) if raw not in (None, "") else None
+
+
+def _int_value(values: dict, key: str) -> int | None:
+    raw = values.get(key)
+    return int(raw) if raw not in (None, "") else None
 
 
 def _fetch_price_data_from_chart_api(ticker: str) -> pd.DataFrame:
@@ -48,9 +171,13 @@ def _fetch_price_data_from_chart_api(ticker: str) -> pd.DataFrame:
             return _chart_payload_to_frame(ticker, payload)
         except TickerNotFoundError:
             raise
+        except YahooRateLimitError as exc:
+            last_error = exc
         except MarketDataError as exc:
             last_error = exc
     if last_error:
+        if isinstance(last_error, YahooRateLimitError):
+            raise last_error
         raise MarketDataError(str(last_error)) from last_error
     raise MarketDataError(f"Could not fetch Yahoo chart data for {ticker.upper()}")
 
@@ -74,7 +201,7 @@ def _get_yahoo_chart_payload(host: str, ticker: str) -> dict:
             response.raise_for_status()
         except HTTPError as exc:
             if response.status_code == 429:
-                raise MarketDataError("Yahoo Finance rate limit reached. Wait a few minutes and retry.") from exc
+                raise YahooRateLimitError("Yahoo Finance rate limit reached. Wait a few minutes and retry.") from exc
             raise
         return response.json()
     except Exception as exc:
@@ -133,8 +260,8 @@ def clean_price_data(df: pd.DataFrame) -> pd.DataFrame:
     cleaned = df.copy()
     cleaned = cleaned[required]
     cleaned = cleaned.ffill(limit=2).dropna()
-    if len(cleaned) < 252:
-        raise InsufficientPriceDataError("At least 252 clean trading days are required for signal calculations")
+    if len(cleaned) < 90:
+        raise InsufficientPriceDataError("At least 90 clean trading days are required for signal calculations")
     cleaned.index = pd.to_datetime(cleaned.index)
     return cleaned
 
@@ -145,7 +272,7 @@ def fetch_company_metadata(ticker: str) -> dict[str, str]:
     if cached and datetime.utcnow() - cached[0] < CACHE_TTL:
         return cached[1].copy()
 
-    info = _fetch_company_metadata_from_quote_api(key)
+    info = _fetch_company_metadata_from_alphavantage(key) if _alphavantage_api_key() else _fetch_company_metadata_from_quote_api(key)
     if info:
         _metadata_cache[key] = (datetime.utcnow(), info.copy())
         return info
@@ -159,6 +286,34 @@ def fetch_company_metadata(ticker: str) -> dict[str, str]:
     }
     _metadata_cache[key] = (datetime.utcnow(), fallback.copy())
     return fallback
+
+
+def _fetch_company_metadata_from_alphavantage(ticker: str) -> dict[str, str]:
+    api_key = _alphavantage_api_key()
+    if not api_key:
+        return {}
+
+    try:
+        payload = _get_alphavantage_payload(
+            {
+                "function": "OVERVIEW",
+                "symbol": _alphavantage_symbol(ticker),
+                "apikey": api_key,
+            }
+        )
+    except MarketDataError:
+        return {}
+
+    if not payload or not payload.get("Symbol"):
+        return {}
+
+    return {
+        "name": payload.get("Name") or ticker.upper(),
+        "exchange": payload.get("Exchange") or "",
+        "sector": payload.get("Sector") or "Equity",
+        "industry": payload.get("Industry") or "",
+        "currency": payload.get("Currency") or "",
+    }
 
 
 def _fetch_company_metadata_from_quote_api(ticker: str) -> dict[str, str]:

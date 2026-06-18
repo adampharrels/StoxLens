@@ -42,8 +42,8 @@ def calculate_signals(df: pd.DataFrame) -> SignalResult:
     return_12m = _pct(close, 252)
 
     daily_returns = close.pct_change()
-    volatility_30d = float(daily_returns.rolling(30).std().iloc[-1] * sqrt(252))
-    volatility_90d = float(daily_returns.rolling(90).std().iloc[-1] * sqrt(252))
+    volatility_30d = float(daily_returns.rolling(30, min_periods=20).std().iloc[-1] * sqrt(252))
+    volatility_90d = float(daily_returns.rolling(90, min_periods=60).std().iloc[-1] * sqrt(252))
     rolling_max = close.rolling(252, min_periods=1).max()
     max_drawdown = float(((close / rolling_max) - 1).min())
 
