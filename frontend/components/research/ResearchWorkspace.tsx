@@ -27,7 +27,14 @@ export function ResearchWorkspace({ data }: { data: ResearchResponse }) {
       <Tabs active={tab} onChange={setTab} />
       {tab === "Overview" && (
         <>
-          <MetricsTable signals={data.signals} />
+          <MetricsTable
+            signals={data.signals}
+            dataSource={data.data_source}
+            fetchedAt={data.fetched_at}
+            tradingDays={data.trading_days}
+            promptVersion={data.prompt_version}
+            modelUsed={data.model_used}
+          />
           <PriceChart data={data.price_history} />
         </>
       )}

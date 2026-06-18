@@ -49,6 +49,11 @@ export interface ResearchResponse {
   sector: string;
   price: number;
   price_change_pct: number;
+  data_source?: string;
+  fetched_at?: string;
+  trading_days?: number;
+  prompt_version?: string;
+  model_used?: string;
   signals: SignalSnapshot;
   latest_report: ResearchReport | null;
   price_history: PricePoint[];

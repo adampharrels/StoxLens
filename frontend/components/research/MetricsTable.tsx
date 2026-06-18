@@ -11,7 +11,30 @@ const pctRows: Array<[keyof SignalSnapshot, string]> = [
   ["max_drawdown", "Max drawdown"]
 ];
 
-export function MetricsTable({ signals }: { signals: SignalSnapshot }) {
+interface Props {
+  signals: SignalSnapshot;
+  dataSource?: string;
+  fetchedAt?: string;
+  tradingDays?: number;
+  promptVersion?: string;
+  modelUsed?: string;
+}
+
+function fetchedLabel(value?: string) {
+  if (!value) return "Unavailable";
+  return new Date(value).toLocaleString("en-AU", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function tradingDaysLabel(value?: number) {
+  return typeof value === "number" ? value.toLocaleString() : "Unavailable";
+}
+
+export function MetricsTable({ signals, dataSource, fetchedAt, tradingDays, promptVersion, modelUsed }: Props) {
   return (
     <div className="max-w-[620px] py-4">
       {pctRows.map(([key, label]) => {
@@ -42,7 +65,8 @@ export function MetricsTable({ signals }: { signals: SignalSnapshot }) {
         </span>
       </div>
       <div className="mt-5 border-t border-border pt-3 text-xs text-muted">
-        Source: Yahoo Finance · Fetched: today 09:14 AEST · 1,261 trading days · Prompt: v2.1 · Model: claude-sonnet-4-6
+        Source: {dataSource ?? "Unavailable"} · Fetched: {fetchedLabel(fetchedAt)} · {tradingDaysLabel(tradingDays)} trading days ·
+        Prompt: {promptVersion ?? "Unavailable"} · Model: {modelUsed ?? "Unavailable"}
       </div>
     </div>
   );
