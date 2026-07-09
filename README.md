@@ -1,5 +1,7 @@
 # StoxLens
 
+[![CI](https://github.com/adampharrels/StoxLens/actions/workflows/ci.yml/badge.svg)](https://github.com/adampharrels/StoxLens/actions/workflows/ci.yml)
+
 StoxLens is a full-stack equity research workspace for screening stocks, calculating price-based signals, comparing tickers, and generating structured research briefs.
 
 The app is built as an internal analyst tool, not a marketing site. The frontend is Next.js and Tailwind CSS. The backend is FastAPI, pandas, SQLAlchemy, Alpha Vantage market data, Yahoo Finance fallback endpoints, and optional Anthropic brief generation.
@@ -176,6 +178,26 @@ GET  /api/reports
 GET  /api/watchlist
 GET  /api/compare
 ```
+
+## Testing And CI
+
+Backend checks:
+
+```bash
+cd backend
+python -m compileall app
+python -m pytest
+```
+
+Frontend checks:
+
+```bash
+cd frontend
+npm run type-check
+npm run build
+```
+
+GitHub Actions runs these checks on every push and pull request.
 
 ## Troubleshooting
 
