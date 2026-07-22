@@ -17,7 +17,13 @@ router = APIRouter()
 @router.get("")
 def compare(tickers: str = "AAPL") -> dict[str, dict]:
     result: dict[str, dict] = {}
-    for ticker in [item.strip().upper() for item in tickers.split(",") if item.strip()]:
+    ticker_list = [item.strip().upper() for item in tickers.split(",") if item.strip()]
+    if not ticker_list:
+        raise HTTPException(status_code=422, detail="At least one ticker is required.")
+    if len(ticker_list) > 8:
+        raise HTTPException(status_code=422, detail="Compare supports up to 8 tickers at a time.")
+
+    for ticker in ticker_list:
         try:
             df = clean_price_data(fetch_price_data(ticker))
         except TickerNotFoundError as exc:

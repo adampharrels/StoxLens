@@ -35,6 +35,8 @@ function tradingDaysLabel(value?: number) {
 }
 
 export function MetricsTable({ signals, dataSource, fetchedAt, tradingDays, promptVersion, modelUsed }: Props) {
+  const briefLabel = promptVersion && modelUsed ? `Brief: ${promptVersion} · ${modelUsed}` : "Brief: generate to create AI report";
+
   return (
     <div className="max-w-[620px] py-4">
       {pctRows.map(([key, label]) => {
@@ -66,7 +68,7 @@ export function MetricsTable({ signals, dataSource, fetchedAt, tradingDays, prom
       </div>
       <div className="mt-5 border-t border-border pt-3 text-xs text-muted">
         Source: {dataSource ?? "Unavailable"} · Fetched: {fetchedLabel(fetchedAt)} · {tradingDaysLabel(tradingDays)} trading days ·
-        Prompt: {promptVersion ?? "Unavailable"} · Model: {modelUsed ?? "Unavailable"}
+        {briefLabel}
       </div>
     </div>
   );

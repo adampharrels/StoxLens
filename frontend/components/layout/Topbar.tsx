@@ -26,7 +26,7 @@ export function Topbar() {
           className="h-7 w-full rounded-none border border-border bg-surface pl-8 pr-2 text-base text-primary placeholder:text-muted"
         />
       </form>
-      <div className="ml-auto pl-4 text-xs text-muted">Last updated: today 09:14 AEST</div>
+      <div className="ml-auto pl-4 text-xs text-muted">On-demand market data</div>
     </header>
   );
 }

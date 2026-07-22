@@ -37,6 +37,9 @@ export const generateResearch = (ticker: string) =>
 
 export const getReports = () => getJson<ReportListItem[]>("/api/reports");
 
-export const getCompare = () => getJson<Record<string, SignalSnapshot>>("/api/compare");
+export const getCompare = (tickers: string[] = ["AAPL", "MSFT", "IBM"]) => {
+  const query = new URLSearchParams({ tickers: tickers.join(",") });
+  return getJson<Record<string, SignalSnapshot>>(`/api/compare?${query.toString()}`);
+};
 
-export const getWatchlist = () => getJson<{ ticker: string; signal: string }[]>("/api/watchlist");
+export const getWatchlist = () => getJson<{ ticker: string; signal: string; created_at: string }[]>("/api/watchlist");

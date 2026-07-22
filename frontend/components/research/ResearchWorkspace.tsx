@@ -33,8 +33,8 @@ export function ResearchWorkspace({ data }: { data: ResearchResponse }) {
             dataSource={data.data_source}
             fetchedAt={data.fetched_at}
             tradingDays={data.trading_days}
-            promptVersion={data.prompt_version}
-            modelUsed={data.model_used}
+            promptVersion={data.latest_report?.prompt_version}
+            modelUsed={data.latest_report?.model_used}
           />
           <FundamentalsPanel fundamentals={data.fundamentals} currency={data.currency} industry={data.industry} />
           <PriceChart data={data.price_history} />
