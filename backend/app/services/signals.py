@@ -23,9 +23,9 @@ class SignalResult(TypedDict):
 
 
 def _pct(close: pd.Series, periods: int) -> float:
-    if len(close) <= periods:
+    if len(close) <= periods + 1:
         periods = max(len(close) - 1, 1)
-    return float((close.iloc[-1] / close.iloc[-periods]) - 1)
+    return float((close.iloc[-1] / close.iloc[-(periods + 1)]) - 1)
 
 
 def _score(values: list[bool]) -> int:
