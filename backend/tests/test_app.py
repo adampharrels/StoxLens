@@ -7,7 +7,7 @@ def test_health_status() -> None:
 
 
 def test_expected_api_routes_are_registered() -> None:
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
 
     assert "/health" in paths
     assert "/api/research/{ticker}" in paths
