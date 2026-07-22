@@ -42,13 +42,27 @@ export interface PricePoint {
   adj_close?: number;
 }
 
+export interface Fundamentals {
+  market_cap: number | null;
+  pe_ratio: number | null;
+  eps: number | null;
+  revenue_ttm: number | null;
+  revenue_growth_yoy: number | null;
+  profit_margin: number | null;
+  debt_to_equity: number | null;
+  dividend_yield: number | null;
+}
+
 export interface ResearchResponse {
   ticker: string;
   company_name: string;
   exchange: string;
   sector: string;
+  industry: string;
+  currency: string;
   price: number;
   price_change_pct: number;
+  fundamentals: Fundamentals;
   data_source?: string;
   fetched_at?: string;
   trading_days?: number;

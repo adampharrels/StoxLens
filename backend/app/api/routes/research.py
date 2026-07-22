@@ -1,10 +1,11 @@
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.research import PricePoint, ResearchResponse, SignalSnapshotOut
+from app.schemas.research import FundamentalsOut, PricePoint, ResearchResponse, SignalSnapshotOut
 from app.services.llm import MODEL_USED, PROMPT_VERSION, build_prompt, call_llm, parse_and_validate_brief
 from app.services.market_data import (
     InsufficientPriceDataError,
@@ -39,7 +40,7 @@ def _history(df) -> list[PricePoint]:
     ]
 
 
-def _build_response(ticker: str, df, signals: dict, report, meta: dict[str, str]) -> ResearchResponse:
+def _build_response(ticker: str, df, signals: dict, report, meta: dict[str, Any]) -> ResearchResponse:
     close = df["Close"]
     price_change_pct = float((close.iloc[-1] / close.iloc[-2]) - 1) if len(close) > 1 else 0
     return ResearchResponse(
@@ -47,8 +48,20 @@ def _build_response(ticker: str, df, signals: dict, report, meta: dict[str, str]
         company_name=meta["name"],
         exchange=meta["exchange"],
         sector=meta["sector"],
+        industry=meta["industry"],
+        currency=meta["currency"],
         price=float(close.iloc[-1]),
         price_change_pct=price_change_pct,
+        fundamentals=FundamentalsOut(
+            market_cap=meta.get("market_cap"),
+            pe_ratio=meta.get("pe_ratio"),
+            eps=meta.get("eps"),
+            revenue_ttm=meta.get("revenue_ttm"),
+            revenue_growth_yoy=meta.get("revenue_growth_yoy"),
+            profit_margin=meta.get("profit_margin"),
+            debt_to_equity=meta.get("debt_to_equity"),
+            dividend_yield=meta.get("dividend_yield"),
+        ),
         data_source=market_data_source(),
         fetched_at=datetime.utcnow(),
         trading_days=len(df),

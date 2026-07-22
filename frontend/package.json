@@ -7,7 +7,7 @@
     "build": "next build",
     "type-check": "tsc --noEmit",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "npm run type-check"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

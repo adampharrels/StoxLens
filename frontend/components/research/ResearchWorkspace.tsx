@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AIBrief } from "@/components/research/AIBrief";
 import { CompanyRow } from "@/components/research/CompanyRow";
+import { FundamentalsPanel } from "@/components/research/FundamentalsPanel";
 import { HistoryTable } from "@/components/research/HistoryTable";
 import { MetricsTable } from "@/components/research/MetricsTable";
 import { PriceChart } from "@/components/research/PriceChart";
@@ -35,6 +36,7 @@ export function ResearchWorkspace({ data }: { data: ResearchResponse }) {
             promptVersion={data.prompt_version}
             modelUsed={data.model_used}
           />
+          <FundamentalsPanel fundamentals={data.fundamentals} currency={data.currency} industry={data.industry} />
           <PriceChart data={data.price_history} />
         </>
       )}

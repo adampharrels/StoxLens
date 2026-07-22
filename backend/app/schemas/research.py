@@ -51,13 +51,27 @@ class PricePoint(BaseModel):
     adj_close: float | None = None
 
 
+class FundamentalsOut(BaseModel):
+    market_cap: int | None = None
+    pe_ratio: float | None = None
+    eps: float | None = None
+    revenue_ttm: int | None = None
+    revenue_growth_yoy: float | None = None
+    profit_margin: float | None = None
+    debt_to_equity: float | None = None
+    dividend_yield: float | None = None
+
+
 class ResearchResponse(BaseModel):
     ticker: str
     company_name: str
     exchange: str
     sector: str
+    industry: str
+    currency: str
     price: float
     price_change_pct: float
+    fundamentals: FundamentalsOut
     data_source: str
     fetched_at: datetime
     trading_days: int

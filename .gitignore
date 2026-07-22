@@ -5,6 +5,7 @@ dist/
 build/
 __pycache__/
 *.py[cod]
+*.tsbuildinfo
 .pytest_cache/
 .venv/
 venv/

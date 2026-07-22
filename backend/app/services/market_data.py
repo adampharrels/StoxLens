@@ -163,6 +163,20 @@ def _int_value(values: dict, key: str) -> int | None:
     return int(raw) if raw not in (None, "") else None
 
 
+def _optional_float(value: object) -> float | None:
+    if value in (None, "", "None", "N/A", "-"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: object) -> int | None:
+    parsed = _optional_float(value)
+    return int(parsed) if parsed is not None else None
+
+
 def _fetch_price_data_from_chart_api(ticker: str) -> pd.DataFrame:
     last_error: Exception | None = None
     for host in YAHOO_CHART_HOSTS:
@@ -266,7 +280,7 @@ def clean_price_data(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
-def fetch_company_metadata(ticker: str) -> dict[str, str]:
+def fetch_company_metadata(ticker: str) -> dict:
     key = ticker.upper()
     cached = _metadata_cache.get(key)
     if cached and datetime.utcnow() - cached[0] < CACHE_TTL:
@@ -283,12 +297,20 @@ def fetch_company_metadata(ticker: str) -> dict[str, str]:
         "sector": "Equity",
         "industry": "",
         "currency": "",
+        "market_cap": None,
+        "pe_ratio": None,
+        "eps": None,
+        "revenue_ttm": None,
+        "revenue_growth_yoy": None,
+        "profit_margin": None,
+        "debt_to_equity": None,
+        "dividend_yield": None,
     }
     _metadata_cache[key] = (datetime.utcnow(), fallback.copy())
     return fallback
 
 
-def _fetch_company_metadata_from_alphavantage(ticker: str) -> dict[str, str]:
+def _fetch_company_metadata_from_alphavantage(ticker: str) -> dict:
     api_key = _alphavantage_api_key()
     if not api_key:
         return {}
@@ -313,10 +335,18 @@ def _fetch_company_metadata_from_alphavantage(ticker: str) -> dict[str, str]:
         "sector": payload.get("Sector") or "Equity",
         "industry": payload.get("Industry") or "",
         "currency": payload.get("Currency") or "",
+        "market_cap": _optional_int(payload.get("MarketCapitalization")),
+        "pe_ratio": _optional_float(payload.get("PERatio")),
+        "eps": _optional_float(payload.get("EPS")),
+        "revenue_ttm": _optional_int(payload.get("RevenueTTM")),
+        "revenue_growth_yoy": _optional_float(payload.get("QuarterlyRevenueGrowthYOY")),
+        "profit_margin": _optional_float(payload.get("ProfitMargin")),
+        "debt_to_equity": _optional_float(payload.get("DebtEquityRatio") or payload.get("DebtToEquityRatio")),
+        "dividend_yield": _optional_float(payload.get("DividendYield")),
     }
 
 
-def _fetch_company_metadata_from_quote_api(ticker: str) -> dict[str, str]:
+def _fetch_company_metadata_from_quote_api(ticker: str) -> dict:
     try:
         import requests
 
@@ -342,6 +372,14 @@ def _fetch_company_metadata_from_quote_api(ticker: str) -> dict[str, str]:
         "sector": quote.get("sector") or quote.get("quoteType") or "Equity",
         "industry": quote.get("industry") or "",
         "currency": quote.get("currency") or "",
+        "market_cap": _optional_int(quote.get("marketCap")),
+        "pe_ratio": _optional_float(quote.get("trailingPE") or quote.get("forwardPE")),
+        "eps": _optional_float(quote.get("epsTrailingTwelveMonths") or quote.get("epsForward")),
+        "revenue_ttm": None,
+        "revenue_growth_yoy": None,
+        "profit_margin": None,
+        "debt_to_equity": None,
+        "dividend_yield": _optional_float(quote.get("trailingAnnualDividendYield") or quote.get("dividendYield")),
     }
 
 
