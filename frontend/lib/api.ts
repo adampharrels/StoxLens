@@ -1,4 +1,4 @@
-import type { ReportListItem, ResearchResponse, SignalSnapshot } from "@/lib/types";
+import type { ReportListItem, ResearchResponse, SignalSnapshot, TriageResponse } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -43,3 +43,5 @@ export const getCompare = (tickers: string[] = ["AAPL", "MSFT", "IBM"]) => {
 };
 
 export const getWatchlist = () => getJson<{ ticker: string; signal: string; created_at: string }[]>("/api/watchlist");
+
+export const getTriage = () => getJson<TriageResponse>("/api/triage");

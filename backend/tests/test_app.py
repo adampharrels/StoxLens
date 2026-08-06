@@ -15,6 +15,7 @@ def test_expected_api_routes_are_registered() -> None:
     assert "/api/compare" in paths
     assert "/api/reports" in paths
     assert "/api/watchlist" in paths
+    assert "/api/triage" in paths
 
 
 def test_optional_numeric_parsers_handle_provider_placeholders() -> None:

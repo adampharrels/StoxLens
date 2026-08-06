@@ -8,6 +8,7 @@ import { starterTickers } from "@/lib/tickers";
 
 const nav = [
   { href: "/", label: "Home" },
+  { href: "/today", label: "Today" },
   { href: "/research", label: "Research" },
   { href: "/compare", label: "Compare" },
   { href: "/reports", label: "Reports" }

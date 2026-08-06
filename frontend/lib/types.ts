@@ -80,3 +80,26 @@ export interface ReportListItem {
   summary: string;
   overall_view: string;
 }
+
+export interface TriageReason {
+  code: string;
+  label: string;
+  detail: string;
+  impact: number;
+}
+
+export interface TriageItem {
+  ticker: string;
+  attention_score: number;
+  severity: "Low" | "Medium" | "High";
+  price: number;
+  price_change_pct: number;
+  as_of_date: string;
+  reasons: TriageReason[];
+  metrics: Record<string, number | string>;
+}
+
+export interface TriageResponse {
+  generated_at: string;
+  items: TriageItem[];
+}
