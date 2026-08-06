@@ -81,6 +81,12 @@ export interface ReportListItem {
   overall_view: string;
 }
 
+export interface WatchlistItem {
+  ticker: string;
+  signal: string;
+  created_at: string;
+}
+
 export interface TriageReason {
   code: string;
   label: string;

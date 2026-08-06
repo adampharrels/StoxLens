@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.watchlist import WatchlistCreate, WatchlistItemOut
-from app.services.watchlist import add_watchlist_item, list_watchlist, remove_watchlist_item
+from app.services.watchlist import add_watchlist_item, list_watchlist, remove_watchlist_item, update_watchlist_item
 
 router = APIRouter()
 
@@ -16,6 +16,11 @@ def get_watchlist(db: Session | None = Depends(get_db)) -> list[dict]:
 @router.post("", response_model=WatchlistItemOut, status_code=status.HTTP_201_CREATED)
 def create_watchlist_item(payload: WatchlistCreate, db: Session | None = Depends(get_db)) -> dict:
     return add_watchlist_item(db, payload.ticker)
+
+
+@router.put("/{ticker}", response_model=WatchlistItemOut)
+def replace_watchlist_item(ticker: str, payload: WatchlistCreate, db: Session | None = Depends(get_db)) -> dict:
+    return update_watchlist_item(db, ticker, payload.ticker)
 
 
 @router.delete("/{ticker}", status_code=status.HTTP_204_NO_CONTENT)

@@ -4,26 +4,25 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getWatchlist } from "@/lib/api";
-import { starterTickers } from "@/lib/tickers";
+import type { WatchlistItem } from "@/lib/types";
 
 const nav = [
   { href: "/", label: "Home" },
   { href: "/today", label: "Today" },
+  { href: "/watchlist", label: "Watchlist" },
   { href: "/research", label: "Research" },
   { href: "/compare", label: "Compare" },
   { href: "/reports", label: "Reports" }
 ];
 
-const defaultWatchlist = starterTickers.map((ticker) => ({ ticker, signal: "→ Neutral" }));
-
 export function Sidebar() {
   const pathname = usePathname();
-  const [watchlist, setWatchlist] = useState<{ ticker: string; signal: string }[]>(defaultWatchlist);
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
 
   useEffect(() => {
     getWatchlist()
       .then(setWatchlist)
-      .catch(() => setWatchlist(defaultWatchlist));
+      .catch(() => setWatchlist([]));
   }, []);
 
   return (
@@ -46,15 +45,22 @@ export function Sidebar() {
         })}
       </nav>
       <div className="mt-7 px-3">
-        <div className="label mb-2">Watchlist</div>
+        <Link href="/watchlist" className="label mb-2 block hover:underline">
+          Watchlist
+        </Link>
         <div className="space-y-1">
-          {watchlist.length > 0 &&
+          {watchlist.length > 0 ? (
             watchlist.map((item) => (
               <Link key={item.ticker} href={`/research/${item.ticker}`} className="flex justify-between py-1 text-xs hover:underline">
                 <span className="font-mono text-sm">{item.ticker}</span>
                 <span className="text-xs text-secondary">{item.signal}</span>
               </Link>
-            ))}
+            ))
+          ) : (
+            <Link href="/watchlist" className="block py-1 text-xs text-muted hover:underline">
+              Add tickers
+            </Link>
+          )}
         </div>
       </div>
     </aside>

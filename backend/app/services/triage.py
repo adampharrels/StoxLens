@@ -17,9 +17,6 @@ from app.services.market_data import (
 from app.services.signals import calculate_signals
 from app.services.watchlist import list_watchlist
 
-DEFAULT_TRIAGE_TICKERS = ["AAPL", "MSFT", "IBM"]
-
-
 def _pct(value: float) -> str:
     return f"{value * 100:.1f}%"
 
@@ -125,8 +122,7 @@ def score_ticker(ticker: str, df: pd.DataFrame) -> TriageItemOut:
 
 
 def _watchlist_tickers(db: Session | None) -> list[str]:
-    tickers = [str(item["ticker"]) for item in list_watchlist(db)]
-    return tickers or DEFAULT_TRIAGE_TICKERS
+    return [str(item["ticker"]) for item in list_watchlist(db)]
 
 
 def build_triage(db: Session | None, tickers: str | None = None) -> TriageResponse:

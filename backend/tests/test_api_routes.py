@@ -120,12 +120,15 @@ def test_generate_research_is_rate_limited(monkeypatch) -> None:
 
 def test_watchlist_can_add_and_remove_items() -> None:
     created = client.post("/api/watchlist", json={"ticker": "nvda"})
+    updated = client.put("/api/watchlist/NVDA", json={"ticker": "amd"})
     listed = client.get("/api/watchlist")
-    deleted = client.delete("/api/watchlist/NVDA")
+    deleted = client.delete("/api/watchlist/AMD")
 
     assert created.status_code == 201
     assert created.json()["ticker"] == "NVDA"
-    assert any(item["ticker"] == "NVDA" for item in listed.json())
+    assert updated.status_code == 200
+    assert updated.json()["ticker"] == "AMD"
+    assert any(item["ticker"] == "AMD" for item in listed.json())
     assert deleted.status_code == 204
 
 

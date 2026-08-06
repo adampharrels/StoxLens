@@ -1,15 +1,15 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 from app.db import models
 
-_memory_watchlist: dict[str, datetime] = {
-    "AAPL": datetime.utcnow(),
-    "MSFT": datetime.utcnow(),
-    "IBM": datetime.utcnow(),
-}
+_memory_watchlist: dict[str, datetime] = {}
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _normalise_ticker(ticker: str) -> str:
@@ -30,7 +30,7 @@ def list_watchlist(db: Session | None) -> list[dict[str, str | datetime]]:
 def add_watchlist_item(db: Session | None, ticker: str) -> dict[str, str | datetime]:
     normalised = _normalise_ticker(ticker)
     if db is None:
-        _memory_watchlist.setdefault(normalised, datetime.utcnow())
+        _memory_watchlist.setdefault(normalised, _now())
         return {"ticker": normalised, "created_at": _memory_watchlist[normalised], "signal": "Tracked"}
 
     existing = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == normalised).first()
@@ -39,6 +39,31 @@ def add_watchlist_item(db: Session | None, ticker: str) -> dict[str, str | datet
 
     item = models.WatchlistItem(ticker=normalised)
     db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {"ticker": item.ticker, "created_at": item.created_at, "signal": "Tracked"}
+
+
+def update_watchlist_item(db: Session | None, ticker: str, replacement: str) -> dict[str, str | datetime]:
+    current = _normalise_ticker(ticker)
+    updated = _normalise_ticker(replacement)
+    if db is None:
+        created_at = _memory_watchlist.pop(current, _now())
+        _memory_watchlist[updated] = created_at
+        return {"ticker": updated, "created_at": created_at, "signal": "Tracked"}
+
+    item = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == current).first()
+    existing = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == updated).first()
+    if existing and existing is not item:
+        if item:
+            db.delete(item)
+            db.commit()
+        return {"ticker": existing.ticker, "created_at": existing.created_at, "signal": "Tracked"}
+
+    if item is None:
+        return add_watchlist_item(db, updated)
+
+    item.ticker = updated
     db.commit()
     db.refresh(item)
     return {"ticker": item.ticker, "created_at": item.created_at, "signal": "Tracked"}
