@@ -67,7 +67,7 @@ export default function Home() {
 
           <div className="mt-3 flex max-w-[520px] flex-wrap gap-2">
             {starterTickers.map((ticker) => (
-              <Link key={ticker} href={`/research/${ticker}`} className="border border-border px-2 py-1 font-mono text-xs hover:bg-subtle">
+              <Link key={ticker} href={`/research/${ticker}`} prefetch={false} className="border border-border px-2 py-1 font-mono text-xs hover:bg-subtle">
                 {ticker}
               </Link>
             ))}
@@ -79,7 +79,7 @@ export default function Home() {
               {workflow.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <Link key={item.href} href={item.href} className="grid grid-cols-[120px_1fr_20px] items-center border-b border-border py-3 hover:bg-subtle">
+                  <Link key={item.href} href={item.href} prefetch={false} className="grid grid-cols-[120px_1fr_20px] items-center border-b border-border py-3 hover:bg-subtle">
                     <span className="inline-flex items-center gap-2 text-sm font-medium">
                       <Icon className="h-4 w-4" />
                       {item.label}

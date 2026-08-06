@@ -35,6 +35,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               className={`block border-l-2 px-3 py-2 text-sm ${
                 active ? "border-accent bg-subtle text-primary" : "border-transparent text-secondary"
               }`}
@@ -45,19 +46,19 @@ export function Sidebar() {
         })}
       </nav>
       <div className="mt-7 px-3">
-        <Link href="/watchlist" className="label mb-2 block hover:underline">
+        <Link href="/watchlist" prefetch={false} className="label mb-2 block hover:underline">
           Watchlist
         </Link>
         <div className="space-y-1">
           {watchlist.length > 0 ? (
             watchlist.map((item) => (
-              <Link key={item.ticker} href={`/research/${item.ticker}`} className="flex justify-between py-1 text-xs hover:underline">
+              <Link key={item.ticker} href={`/research/${item.ticker}`} prefetch={false} className="flex justify-between py-1 text-xs hover:underline">
                 <span className="font-mono text-sm">{item.ticker}</span>
                 <span className="text-xs text-secondary">{item.signal}</span>
               </Link>
             ))
           ) : (
-            <Link href="/watchlist" className="block py-1 text-xs text-muted hover:underline">
+            <Link href="/watchlist" prefetch={false} className="block py-1 text-xs text-muted hover:underline">
               Add tickers
             </Link>
           )}

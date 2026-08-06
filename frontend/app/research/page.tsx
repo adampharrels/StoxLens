@@ -38,7 +38,7 @@ export default function ResearchIndexPage() {
         </form>
         <div className="mt-3 flex flex-wrap gap-2">
           {starterTickers.map((ticker) => (
-            <Link key={ticker} href={`/research/${ticker}`} className="border border-border px-2 py-1 font-mono text-xs hover:bg-subtle">
+            <Link key={ticker} href={`/research/${ticker}`} prefetch={false} className="border border-border px-2 py-1 font-mono text-xs hover:bg-subtle">
               {ticker}
             </Link>
           ))}

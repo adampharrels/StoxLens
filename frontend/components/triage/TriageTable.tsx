@@ -39,7 +39,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
         return (
           <div key={item.ticker} className="grid grid-cols-[92px_110px_1fr_90px] gap-4 border-b border-border py-4">
             <div>
-              <Link href={`/research/${item.ticker}`} className="font-mono text-base font-medium hover:underline">
+              <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                 {item.ticker}
               </Link>
               <div className="mt-1 numeric text-xs text-muted">${item.price.toFixed(2)}</div>
@@ -71,7 +71,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
             </div>
 
             <div className="flex items-start justify-end">
-              <Link href={`/research/${item.ticker}`} className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
+              <Link href={`/research/${item.ticker}`} prefetch={false} className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
                 Open
                 <ArrowRight className="h-4 w-4" />
               </Link>

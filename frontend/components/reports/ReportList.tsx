@@ -20,7 +20,7 @@ export function ReportList({ reports }: { reports: ReportListItem[] }) {
           <span className="text-muted">{timeLabel(report.created_at)}</span>
           <span className="truncate">{report.summary}</span>
           <span style={{ color: overallViewColor(report.overall_view) }}>{report.overall_view}</span>
-          <Link href={`/research/${report.ticker}`} className="text-right hover:underline">
+          <Link href={`/research/${report.ticker}`} prefetch={false} className="text-right hover:underline">
             View
           </Link>
         </div>

@@ -129,7 +129,7 @@ export function WatchlistManager({ initialItems }: { initialItems: WatchlistItem
                   className="h-7 w-full rounded-none border border-border bg-surface px-2 font-mono text-base text-primary"
                 />
               ) : (
-                <Link href={`/research/${item.ticker}`} className="font-mono text-base font-medium hover:underline">
+                <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                   {item.ticker}
                 </Link>
               )}
@@ -153,7 +153,7 @@ export function WatchlistManager({ initialItems }: { initialItems: WatchlistItem
                   </>
                 ) : (
                   <>
-                    <Link href={`/research/${item.ticker}`} className="inline-flex h-7 w-7 items-center justify-center border border-border hover:bg-subtle" title="Open research">
+                    <Link href={`/research/${item.ticker}`} prefetch={false} className="inline-flex h-7 w-7 items-center justify-center border border-border hover:bg-subtle" title="Open research">
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                     <button type="button" onClick={() => beginEdit(item.ticker)} className="inline-flex h-7 w-7 items-center justify-center border border-border hover:bg-subtle" title="Edit">
