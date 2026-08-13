@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pandas as pd
 from fastapi.testclient import TestClient
@@ -8,6 +8,7 @@ from app.main import app
 from app.services import research as research_service
 from app.services import triage as triage_service
 from app.services.market_data import TickerNotFoundError
+from app.services.news import NewsArticle, classify_news
 from app.services.rate_limit import clear_rate_limits
 
 client = TestClient(app)
@@ -146,6 +147,7 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
 
     monkeypatch.setattr(triage_service, "fetch_price_data", fake_fetch)
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
 
     response = client.get("/api/triage?tickers=aapl,msft")
     body = response.json()
@@ -155,3 +157,35 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
     assert body["items"][0]["attention_score"] > body["items"][1]["attention_score"]
     assert body["items"][0]["reasons"]
     assert seen == ["AAPL", "MSFT"]
+
+
+def test_triage_adds_price_relevant_news(monkeypatch) -> None:
+    def fake_news(ticker: str) -> list[NewsArticle]:
+        return [
+            NewsArticle(
+                title=f"{ticker} cuts revenue guidance after weak demand",
+                url="https://example.com/news",
+                source="Example",
+                published_at=datetime(2026, 8, 13, 9, 0, tzinfo=UTC),
+                summary="",
+                category="guidance",
+                impact=4,
+            )
+        ]
+
+    monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", fake_news)
+
+    response = client.get("/api/triage?tickers=aapl")
+    item = response.json()["items"][0]
+
+    assert response.status_code == 200
+    assert item["news"][0]["category"] == "guidance"
+    assert any(reason["code"] == "news" for reason in item["reasons"])
+    assert item["attention_score"] >= 48
+
+
+def test_news_classifier_ignores_generic_articles() -> None:
+    assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
+    assert classify_news("Company mentioned in generic market wrap") == ("general", 0)

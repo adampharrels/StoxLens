@@ -22,6 +22,15 @@ function metricLabel(item: TriageItem) {
   return `RSI ${rsi.toFixed(1)} · Vol pct ${(vol * 100).toFixed(0)} · Volume ${volume.toFixed(1)}x`;
 }
 
+function newsLabel(value: string) {
+  return new Date(value).toLocaleString("en-AU", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 export function TriageTable({ items }: { items: TriageItem[] }) {
   if (items.length === 0) {
     return (
@@ -68,6 +77,23 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
                 )}
               </div>
               <div className="mt-2 text-xs text-muted">{metricLabel(item)}</div>
+              {item.news.length > 0 && (
+                <div className="mt-3 space-y-1 border-t border-border pt-2">
+                  {item.news.slice(0, 2).map((article) => (
+                    <a
+                      key={`${article.title}-${article.published_at}`}
+                      href={article.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-xs hover:underline"
+                    >
+                      <span className="font-medium text-primary">{article.category}</span>
+                      <span className="text-secondary"> · {article.title}</span>
+                      <span className="text-muted"> · {article.source}, {newsLabel(article.published_at)}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex items-start justify-end">

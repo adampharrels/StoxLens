@@ -94,6 +94,15 @@ export interface TriageReason {
   impact: number;
 }
 
+export interface NewsArticle {
+  title: string;
+  url: string;
+  source: string;
+  published_at: string;
+  category: string;
+  impact: number;
+}
+
 export interface TriageItem {
   ticker: string;
   attention_score: number;
@@ -102,6 +111,7 @@ export interface TriageItem {
   price_change_pct: number;
   as_of_date: string;
   reasons: TriageReason[];
+  news: NewsArticle[];
   metrics: Record<string, number | string>;
 }
 

@@ -11,6 +11,15 @@ class TriageReasonOut(BaseModel):
     impact: int = Field(ge=1, le=4)
 
 
+class NewsArticleOut(BaseModel):
+    title: str
+    url: str
+    source: str
+    published_at: datetime
+    category: str
+    impact: int = Field(ge=1, le=4)
+
+
 class TriageItemOut(BaseModel):
     ticker: str
     attention_score: int = Field(ge=0, le=100)
@@ -19,6 +28,7 @@ class TriageItemOut(BaseModel):
     price_change_pct: float
     as_of_date: date
     reasons: list[TriageReasonOut]
+    news: list[NewsArticleOut]
     metrics: dict[str, float | int | str]
 
 
