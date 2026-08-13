@@ -203,11 +203,13 @@ The practical workflow is:
 
 Technical triggers include moving-average breaks, RSI extremes, volatility spikes, drawdown thresholds, abnormal volume, unusual daily moves, and weak data quality.
 
-News triggers are deterministic keyword categories:
+News triggers are deterministic keyword categories. Current API category values are:
 
 ```text
-earnings, guidance, regulatory/legal, M&A, analyst rating, dividends/buybacks, management changes, product/contract news
+earnings, guidance, regulatory, m&a, analyst, capital return, management, product
 ```
+
+These categories are implementation-owned and can be expanded or renamed as the backend classifier evolves.
 
 The goal is not to predict price direction. The goal is to answer:
 
