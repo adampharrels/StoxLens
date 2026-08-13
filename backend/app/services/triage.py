@@ -4,7 +4,7 @@ from math import sqrt
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.schemas.triage import TriageItemOut, TriageReasonOut, TriageResponse
+from app.schemas.triage import NewsArticleOut, TriageItemOut, TriageReasonOut, TriageResponse
 from app.services.market_data import (
     InsufficientPriceDataError,
     MarketDataError,
@@ -14,8 +14,10 @@ from app.services.market_data import (
     clean_price_data,
     fetch_price_data,
 )
+from app.services.news import NewsArticle, fetch_ticker_news
 from app.services.signals import calculate_signals
 from app.services.watchlist import list_watchlist
+
 
 def _pct(value: float) -> str:
     return f"{value * 100:.1f}%"
@@ -32,7 +34,18 @@ def _reason(code: str, label: str, detail: str, impact: int) -> TriageReasonOut:
     return TriageReasonOut(code=code, label=label, detail=detail, impact=impact)
 
 
-def score_ticker(ticker: str, df: pd.DataFrame) -> TriageItemOut:
+def _news_to_schema(article: NewsArticle) -> NewsArticleOut:
+    return NewsArticleOut(
+        title=article.title,
+        url=article.url,
+        source=article.source,
+        published_at=article.published_at,
+        category=article.category,
+        impact=article.impact,
+    )
+
+
+def score_ticker(ticker: str, df: pd.DataFrame, news: list[NewsArticle] | None = None) -> TriageItemOut:
     signals = calculate_signals(df)
     quality = assess_data_quality(df)
     signals["data_quality_score"] = int(quality["score"])
@@ -94,6 +107,12 @@ def score_ticker(ticker: str, df: pd.DataFrame) -> TriageItemOut:
     if int(signals["data_quality_score"]) < 4:
         reasons.append(_reason("data_quality", "Data quality", "Market data quality is below the preferred threshold.", 2))
 
+    news_items = news or []
+    news_impact = min(4, sum(article.impact for article in news_items[:3]))
+    if news_impact > 0:
+        categories = ", ".join(dict.fromkeys(article.category for article in news_items[:3]))
+        reasons.append(_reason("news", "Price-relevant news", f"Recent {categories} news should be reviewed.", news_impact))
+
     score = min(100, sum(reason.impact for reason in reasons) * 12)
     severity = "High" if score >= 60 else "Medium" if score >= 30 else "Low"
 
@@ -117,6 +136,7 @@ def score_ticker(ticker: str, df: pd.DataFrame) -> TriageItemOut:
         price_change_pct=price_change_pct,
         as_of_date=df.index[-1].date(),
         reasons=reasons,
+        news=[_news_to_schema(article) for article in news_items],
         metrics=metrics,
     )
 
@@ -139,7 +159,7 @@ def build_triage(db: Session | None, tickers: str | None = None) -> TriageRespon
             df = clean_price_data(fetch_price_data(ticker))
         except (TickerNotFoundError, InsufficientPriceDataError, RateLimitError, MarketDataError):
             continue
-        items.append(score_ticker(ticker, df))
+        items.append(score_ticker(ticker, df, fetch_ticker_news(ticker)))
 
     items.sort(key=lambda item: (item.attention_score, abs(item.price_change_pct)), reverse=True)
     return TriageResponse(generated_at=datetime.now(UTC), items=items)

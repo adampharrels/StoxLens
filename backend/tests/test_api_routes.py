@@ -1,13 +1,15 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.api.routes import compare as compare_route
 from app.main import app
+from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
 from app.services.market_data import TickerNotFoundError
+from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
 
 client = TestClient(app)
@@ -146,6 +148,7 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
 
     monkeypatch.setattr(triage_service, "fetch_price_data", fake_fetch)
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
 
     response = client.get("/api/triage?tickers=aapl,msft")
     body = response.json()
@@ -155,3 +158,87 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
     assert body["items"][0]["attention_score"] > body["items"][1]["attention_score"]
     assert body["items"][0]["reasons"]
     assert seen == ["AAPL", "MSFT"]
+
+
+def test_triage_adds_price_relevant_news(monkeypatch) -> None:
+    def fake_news(ticker: str) -> list[NewsArticle]:
+        return [
+            NewsArticle(
+                title=f"{ticker} cuts revenue guidance after weak demand",
+                url="https://example.com/news",
+                source="Example",
+                published_at=datetime(2026, 8, 13, 9, 0, tzinfo=UTC),
+                summary="",
+                category="guidance",
+                impact=4,
+            )
+        ]
+
+    monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", fake_news)
+
+    response = client.get("/api/triage?tickers=aapl")
+    item = response.json()["items"][0]
+
+    assert response.status_code == 200
+    assert item["news"][0]["category"] == "guidance"
+    assert any(reason["code"] == "news" for reason in item["reasons"])
+    assert item["attention_score"] >= 48
+
+
+def test_news_classifier_ignores_generic_articles() -> None:
+    assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
+    assert classify_news("Company mentioned in generic market wrap") == ("general", 0)
+    assert classify_news("Bank platform response improves in seconds") == ("general", 0)
+    assert classify_news("Software vendor expands banking tools") == ("general", 0)
+
+
+def test_news_classifier_matches_whole_keywords_and_phrases() -> None:
+    assert classify_news("SEC opens investigation into disclosure practices") == ("regulatory", 4)
+    assert classify_news("Company faces export ban in key market") == ("regulatory", 4)
+    assert classify_news("Board reviews M&A options") == ("m&a", 3)
+    assert classify_news("Company cuts forecast after weak demand") == ("guidance", 4)
+
+
+def test_news_filter_requires_ticker_relevance() -> None:
+    assert _article_matches_ticker({"ticker_sentiment": [{"ticker": "NVDA"}], "title": "Chip news"}, "NVDA")
+    assert _article_matches_ticker({"ticker_sentiment": [], "title": "Nvidia partners with $NVDA supplier"}, "NVDA")
+    assert not _article_matches_ticker({"ticker_sentiment": [{"ticker": "IBM"}], "title": "IBM fund filing"}, "NVDA")
+
+
+def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
+    def fake_news(ticker: str, *, limit: int = 5, lookback=None) -> list[NewsArticle]:
+        return [
+            NewsArticle(
+                title=f"{ticker} receives analyst upgrade",
+                url="https://example.com/upgrade",
+                source="Example",
+                published_at=datetime(2026, 8, 13, 10, 0, tzinfo=UTC),
+                summary="",
+                category="analyst",
+                impact=2,
+            )
+        ][:limit]
+
+    monkeypatch.setattr("app.api.routes.news.fetch_ticker_news", fake_news)
+
+    response = client.get("/api/news/aapl?limit=1&lookback_hours=48")
+
+    assert response.status_code == 200
+    assert response.json()[0]["category"] == "analyst"
+    assert response.json()[0]["impact"] == 2
+
+
+def test_news_cache_prunes_expired_lookback_entries(monkeypatch) -> None:
+    news_service._news_cache.clear()
+    news_service._news_cache["AAPL:3600"] = (datetime(2000, 1, 1, tzinfo=UTC), [])
+    monkeypatch.setattr(news_service, "_fetch_alphavantage_news", lambda ticker, *, lookback: [])
+
+    try:
+        news_service.fetch_ticker_news("msft", lookback=timedelta(hours=2))
+
+        assert "AAPL:3600" not in news_service._news_cache
+        assert "MSFT:7200" in news_service._news_cache
+    finally:
+        news_service._news_cache.clear()

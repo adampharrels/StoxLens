@@ -1,4 +1,5 @@
 import { TriageTable } from "@/components/triage/TriageTable";
+import { TriageLegend } from "@/components/triage/TriageLegend";
 import { ApiUnavailable } from "@/components/layout/ApiUnavailable";
 import { ApiError, getTriage } from "@/lib/api";
 
@@ -39,6 +40,7 @@ export default async function TodayPage() {
           </div>
         </div>
 
+        <TriageLegend />
         <TriageTable items={data.items} />
       </div>
     );
