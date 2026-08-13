@@ -190,6 +190,15 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
 def test_news_classifier_ignores_generic_articles() -> None:
     assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
     assert classify_news("Company mentioned in generic market wrap") == ("general", 0)
+    assert classify_news("Bank platform response improves in seconds") == ("general", 0)
+    assert classify_news("Software vendor expands banking tools") == ("general", 0)
+
+
+def test_news_classifier_matches_whole_keywords_and_phrases() -> None:
+    assert classify_news("SEC opens investigation into disclosure practices") == ("regulatory", 4)
+    assert classify_news("Company faces export ban in key market") == ("regulatory", 4)
+    assert classify_news("Board reviews M&A options") == ("m&a", 3)
+    assert classify_news("Company cuts forecast after weak demand") == ("guidance", 4)
 
 
 def test_news_filter_requires_ticker_relevance() -> None:

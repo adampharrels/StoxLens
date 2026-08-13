@@ -24,7 +24,7 @@ KEYWORD_RULES: list[tuple[str, int, tuple[str, ...]]] = [
     ("earnings", 4, ("earnings", "results", "quarterly", "profit", "revenue", "eps")),
     ("guidance", 4, ("guidance", "forecast", "outlook", "warns", "warning", "cuts forecast", "raises forecast")),
     ("regulatory", 4, ("regulator", "regulatory", "lawsuit", "probe", "investigation", "antitrust", "sec", "ban", "restriction")),
-    ("m&a", 3, ("acquisition", "merger", "takeover", "buyout", "deal", "stake")),
+    ("m&a", 3, ("m&a", "acquisition", "merger", "takeover", "buyout", "deal", "stake")),
     ("analyst", 2, ("upgrade", "downgrade", "price target", "initiates", "rating")),
     ("capital return", 2, ("buyback", "repurchase", "dividend", "split")),
     ("management", 2, ("ceo", "cfo", "resigns", "steps down", "appointed", "layoffs", "job cuts")),
@@ -58,11 +58,16 @@ def _prune_expired_cache(now: datetime) -> None:
 
 
 def classify_news(title: str, summary: str = "") -> tuple[str, int]:
-    text = f"{title} {summary}".lower()
+    text = _normalise_news_text(f"{title} {summary}")
     for category, impact, keywords in KEYWORD_RULES:
-        if any(keyword in text for keyword in keywords):
+        if any(_normalise_news_text(keyword) in text for keyword in keywords):
             return category, impact
     return "general", 0
+
+
+def _normalise_news_text(value: str) -> str:
+    text = "".join(ch if ch.isalnum() else " " for ch in value.lower())
+    return f" {' '.join(text.split())} "
 
 
 def _fetch_alphavantage_news(ticker: str, *, lookback: timedelta) -> list[NewsArticle]:
