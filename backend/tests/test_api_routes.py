@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.api.routes import compare as compare_route
 from app.main import app
+from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
 from app.services.market_data import TickerNotFoundError
@@ -218,3 +219,17 @@ def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()[0]["category"] == "analyst"
     assert response.json()[0]["impact"] == 2
+
+
+def test_news_cache_prunes_expired_lookback_entries(monkeypatch) -> None:
+    news_service._news_cache.clear()
+    news_service._news_cache["AAPL:3600"] = (datetime(2000, 1, 1, tzinfo=UTC), [])
+    monkeypatch.setattr(news_service, "_fetch_alphavantage_news", lambda ticker, *, lookback: [])
+
+    try:
+        news_service.fetch_ticker_news("msft", lookback=timedelta(hours=2))
+
+        assert "AAPL:3600" not in news_service._news_cache
+        assert "MSFT:7200" in news_service._news_cache
+    finally:
+        news_service._news_cache.clear()
