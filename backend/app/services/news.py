@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from app.services.market_data import ALPHAVANTAGE_URL, MarketDataError, RateLimitError
 
 NEWS_CACHE_TTL = timedelta(minutes=30)
-NEWS_LOOKBACK = timedelta(hours=72)
+NEWS_LOOKBACK = timedelta(hours=168)
 _news_cache: dict[str, tuple[datetime, list["NewsArticle"]]] = {}
 
 
@@ -91,6 +91,9 @@ def _fetch_alphavantage_news(ticker: str, *, lookback: timedelta) -> list[NewsAr
     cutoff = datetime.now(UTC) - lookback
     articles: list[NewsArticle] = []
     for item in payload.get("feed", []):
+        if not _article_matches_ticker(item, ticker):
+            continue
+
         published_at = _parse_alphavantage_time(str(item.get("time_published", "")))
         if published_at is None or published_at < cutoff:
             continue
@@ -117,6 +120,16 @@ def _fetch_alphavantage_news(ticker: str, *, lookback: timedelta) -> list[NewsAr
         )
 
     return articles
+
+
+def _article_matches_ticker(item: dict, ticker: str) -> bool:
+    expected = ticker.upper()
+    for sentiment in item.get("ticker_sentiment", []):
+        if str(sentiment.get("ticker", "")).upper() == expected:
+            return True
+
+    text = f"{item.get('title', '')} {item.get('summary', '')}".upper()
+    return f"${expected}" in text or f" {expected} " in f" {text} "
 
 
 def _parse_alphavantage_time(value: str) -> datetime | None:

@@ -8,7 +8,7 @@ from app.main import app
 from app.services import research as research_service
 from app.services import triage as triage_service
 from app.services.market_data import TickerNotFoundError
-from app.services.news import NewsArticle, classify_news
+from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
 
 client = TestClient(app)
@@ -189,6 +189,12 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
 def test_news_classifier_ignores_generic_articles() -> None:
     assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
     assert classify_news("Company mentioned in generic market wrap") == ("general", 0)
+
+
+def test_news_filter_requires_ticker_relevance() -> None:
+    assert _article_matches_ticker({"ticker_sentiment": [{"ticker": "NVDA"}], "title": "Chip news"}, "NVDA")
+    assert _article_matches_ticker({"ticker_sentiment": [], "title": "Nvidia partners with $NVDA supplier"}, "NVDA")
+    assert not _article_matches_ticker({"ticker_sentiment": [{"ticker": "IBM"}], "title": "IBM fund filing"}, "NVDA")
 
 
 def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
