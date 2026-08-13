@@ -189,3 +189,26 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
 def test_news_classifier_ignores_generic_articles() -> None:
     assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
     assert classify_news("Company mentioned in generic market wrap") == ("general", 0)
+
+
+def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
+    def fake_news(ticker: str, *, limit: int = 5, lookback=None) -> list[NewsArticle]:
+        return [
+            NewsArticle(
+                title=f"{ticker} receives analyst upgrade",
+                url="https://example.com/upgrade",
+                source="Example",
+                published_at=datetime(2026, 8, 13, 10, 0, tzinfo=UTC),
+                summary="",
+                category="analyst",
+                impact=2,
+            )
+        ][:limit]
+
+    monkeypatch.setattr("app.api.routes.news.fetch_ticker_news", fake_news)
+
+    response = client.get("/api/news/aapl?limit=1&lookback_hours=48")
+
+    assert response.status_code == 200
+    assert response.json()[0]["category"] == "analyst"
+    assert response.json()[0]["impact"] == 2

@@ -34,7 +34,8 @@ KEYWORD_RULES: list[tuple[str, int, tuple[str, ...]]] = [
 
 def fetch_ticker_news(ticker: str, *, limit: int = 5, lookback: timedelta = NEWS_LOOKBACK) -> list[NewsArticle]:
     key = ticker.upper()
-    cached = _news_cache.get(key)
+    cache_key = f"{key}:{int(lookback.total_seconds())}"
+    cached = _news_cache.get(cache_key)
     now = datetime.now(UTC)
     if cached and now - cached[0] < NEWS_CACHE_TTL:
         return cached[1][:limit]
@@ -44,7 +45,7 @@ def fetch_ticker_news(ticker: str, *, limit: int = 5, lookback: timedelta = NEWS
     except (MarketDataError, RateLimitError):
         articles = []
 
-    _news_cache[key] = (now, articles)
+    _news_cache[cache_key] = (now, articles)
     return articles[:limit]
 
 

@@ -2,15 +2,17 @@
 
 [![CI](https://github.com/adampharrels/StoxLens/actions/workflows/ci.yml/badge.svg)](https://github.com/adampharrels/StoxLens/actions/workflows/ci.yml)
 
-StoxLens is a full-stack equity research workspace for screening stocks, calculating price-based signals, comparing tickers, and generating structured research briefs.
+StoxLens is a full-stack equity research workspace for managing a watchlist, ranking which stocks need attention, calculating price-based signals, comparing tickers, and generating structured research briefs.
 
 The app is built as an internal analyst tool, not a marketing site. The frontend is Next.js and Tailwind CSS. The backend is FastAPI, pandas, SQLAlchemy, Alpha Vantage market data, Yahoo Finance fallback endpoints, and optional Anthropic brief generation.
 
 ## Features
 
-- Research page for supported market tickers
+- CRUD watchlist for saved tickers
+- Today page that ranks watchlist stocks by attention urgency
 - Five-year price history fetched from Alpha Vantage when configured
 - Momentum, trend, volatility, drawdown, RSI, and volume-trend signals
+- News-aware triage using Alpha Vantage news sentiment plus deterministic relevance rules
 - Structured AI research brief generation
 - Compare table across multiple tickers
 - Reports list for generated briefs
@@ -97,6 +99,8 @@ Recommended market data provider:
 export ALPHAVANTAGE_API_KEY=your_key_here
 ```
 
+The same Alpha Vantage key is also used for optional news-aware triage. If no key is set, StoxLens still ranks watchlist tickers from price and technical signals; news reasons simply remain empty.
+
 By default, StoxLens requests Alpha Vantage `TIME_SERIES_DAILY` with `outputsize=compact`, which works with free keys but returns a shorter history window. If you have a premium plan, set:
 
 ```bash
@@ -176,7 +180,39 @@ GET  /api/research/{ticker}
 POST /api/research/{ticker}/generate
 GET  /api/reports
 GET  /api/watchlist
+POST /api/watchlist
+PUT  /api/watchlist/{ticker}
+DELETE /api/watchlist/{ticker}
 GET  /api/compare
+GET  /api/triage
+GET  /api/news/{ticker}
+```
+
+## Watchlist Triage Workflow
+
+The practical workflow is:
+
+```text
+1. Add tickers on /watchlist
+2. Open /today
+3. Backend loads the saved watchlist
+4. Backend fetches recent price data for each ticker
+5. Backend fetches recent price-relevant news when ALPHAVANTAGE_API_KEY is configured
+6. StoxLens ranks tickers by attention score and explains the trigger reasons
+```
+
+Technical triggers include moving-average breaks, RSI extremes, volatility spikes, drawdown thresholds, abnormal volume, unusual daily moves, and weak data quality.
+
+News triggers are deterministic keyword categories:
+
+```text
+earnings, guidance, regulatory/legal, M&A, analyst rating, dividends/buybacks, management changes, product/contract news
+```
+
+The goal is not to predict price direction. The goal is to answer:
+
+```text
+Which watchlist stocks deserve attention today, and why?
 ```
 
 ## Testing And CI
