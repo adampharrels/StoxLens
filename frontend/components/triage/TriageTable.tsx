@@ -31,6 +31,10 @@ function newsLabel(value: string) {
   });
 }
 
+function contribution(impact: number) {
+  return `+${impact * 12}`;
+}
+
 export function TriageTable({ items }: { items: TriageItem[] }) {
   if (items.length === 0) {
     return (
@@ -67,9 +71,12 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
               <div className="space-y-1">
                 {topReasons.length > 0 ? (
                   topReasons.map((reason) => (
-                    <div key={reason.code} className="text-sm">
-                      <span className="font-medium text-primary">{reason.label}</span>
-                      <span className="text-secondary"> · {reason.detail}</span>
+                    <div key={reason.code} className="flex gap-2 text-sm">
+                      <span className="numeric w-9 shrink-0 text-muted">{contribution(reason.impact)}</span>
+                      <span>
+                        <span className="font-medium text-primary">{reason.label}</span>
+                        <span className="text-secondary"> · {reason.detail}</span>
+                      </span>
                     </div>
                   ))
                 ) : (
