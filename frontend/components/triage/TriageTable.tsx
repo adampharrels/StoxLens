@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
 import { fmtPct } from "@/lib/format";
-import type { TriageItem } from "@/lib/types";
+import type { TriageItem, WatchNote } from "@/lib/types";
 
 const severityStyle: Record<TriageItem["severity"], string> = {
   High: "text-red-600",
@@ -44,9 +44,16 @@ function primaryAlert(item: TriageItem) {
   return reason ? `${reason.label}: ${reason.detail}` : "Signals are stable. No material threshold crossed.";
 }
 
-function researchQuestion(item: TriageItem) {
-  const change = sentence(item.watch_note.change_my_mind);
-  const reason = sentence(item.watch_note.watch_reason);
+const emptyWatchNote: WatchNote = {
+  ticker: "",
+  watch_reason: "",
+  main_risk: "",
+  change_my_mind: ""
+};
+
+function researchQuestion(item: TriageItem, note: WatchNote) {
+  const change = sentence(note.change_my_mind);
+  const reason = sentence(note.watch_reason);
   if (change) {
     return `Is this alert evidence that ${change.toLowerCase()}?`;
   }
@@ -75,7 +82,8 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
       {items.map((item) => {
         const Icon = severityIcon[item.severity];
         const topReasons = item.reasons.slice(0, 3);
-        const hasWatchNote = Boolean(item.watch_note.watch_reason || item.watch_note.main_risk || item.watch_note.change_my_mind);
+        const watchNote = item.watch_note ?? emptyWatchNote;
+        const hasWatchNote = Boolean(watchNote.watch_reason || watchNote.main_risk || watchNote.change_my_mind);
         return (
           <div key={item.ticker} className="grid grid-cols-[92px_110px_1fr_90px] gap-4 border-b border-border py-4">
             <div>
@@ -97,28 +105,28 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
             <div>
               {hasWatchNote && (
                 <div className="mb-3 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1 border-b border-border pb-3 text-sm">
-                  {item.watch_note.watch_reason && (
+                  {watchNote.watch_reason && (
                     <>
                       <div className="label">Why watching</div>
-                      <div className="text-secondary">{item.watch_note.watch_reason}</div>
+                      <div className="text-secondary">{watchNote.watch_reason}</div>
                     </>
                   )}
-                  {item.watch_note.main_risk && (
+                  {watchNote.main_risk && (
                     <>
                       <div className="label">Main risk</div>
-                      <div className="text-secondary">{item.watch_note.main_risk}</div>
+                      <div className="text-secondary">{watchNote.main_risk}</div>
                     </>
                   )}
-                  {item.watch_note.change_my_mind && (
+                  {watchNote.change_my_mind && (
                     <>
                       <div className="label">Change my mind</div>
-                      <div className="text-secondary">{item.watch_note.change_my_mind}</div>
+                      <div className="text-secondary">{watchNote.change_my_mind}</div>
                     </>
                   )}
                   <div className="label">Today's alert</div>
                   <div className="text-secondary">{primaryAlert(item)}</div>
                   <div className="label">Research question</div>
-                  <div className="text-secondary">{researchQuestion(item)}</div>
+                  <div className="text-secondary">{researchQuestion(item, watchNote)}</div>
                 </div>
               )}
               {item.changes && (

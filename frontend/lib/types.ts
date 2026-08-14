@@ -134,7 +134,7 @@ export interface TriageItem {
   reasons: TriageReason[];
   news: NewsArticle[];
   metrics: Record<string, number | string>;
-  watch_note: WatchNote;
+  watch_note?: WatchNote;
   changes: TriageChange | null;
 }
 
