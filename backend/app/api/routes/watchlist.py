@@ -15,12 +15,25 @@ def get_watchlist(db: Session | None = Depends(get_db)) -> list[dict]:
 
 @router.post("", response_model=WatchlistItemOut, status_code=status.HTTP_201_CREATED)
 def create_watchlist_item(payload: WatchlistCreate, db: Session | None = Depends(get_db)) -> dict:
-    return add_watchlist_item(db, payload.ticker)
+    return add_watchlist_item(
+        db,
+        payload.ticker,
+        watch_reason=payload.watch_reason,
+        main_risk=payload.main_risk,
+        change_my_mind=payload.change_my_mind,
+    )
 
 
 @router.put("/{ticker}", response_model=WatchlistItemOut)
 def replace_watchlist_item(ticker: str, payload: WatchlistCreate, db: Session | None = Depends(get_db)) -> dict:
-    return update_watchlist_item(db, ticker, payload.ticker)
+    return update_watchlist_item(
+        db,
+        ticker,
+        payload.ticker,
+        watch_reason=payload.watch_reason,
+        main_risk=payload.main_risk,
+        change_my_mind=payload.change_my_mind,
+    )
 
 
 @router.delete("/{ticker}", status_code=status.HTTP_204_NO_CONTENT)

@@ -121,16 +121,35 @@ def test_generate_research_is_rate_limited(monkeypatch) -> None:
 
 
 def test_watchlist_can_add_and_remove_items() -> None:
-    created = client.post("/api/watchlist", json={"ticker": "nvda"})
-    updated = client.put("/api/watchlist/NVDA", json={"ticker": "amd"})
+    created = client.post(
+        "/api/watchlist",
+        json={
+            "ticker": "nvda",
+            "watch_reason": "AI infrastructure demand.",
+            "main_risk": "Valuation is expensive.",
+            "change_my_mind": "Margins weaken.",
+        },
+    )
+    updated = client.put(
+        "/api/watchlist/NVDA",
+        json={
+            "ticker": "amd",
+            "watch_reason": "Data centre GPU share gains.",
+            "main_risk": "Execution risk.",
+            "change_my_mind": "Demand slows.",
+        },
+    )
     listed = client.get("/api/watchlist")
     deleted = client.delete("/api/watchlist/AMD")
 
     assert created.status_code == 201
     assert created.json()["ticker"] == "NVDA"
+    assert created.json()["watch_reason"] == "AI infrastructure demand."
     assert updated.status_code == 200
     assert updated.json()["ticker"] == "AMD"
+    assert updated.json()["main_risk"] == "Execution risk."
     assert any(item["ticker"] == "AMD" for item in listed.json())
+    assert any(item["change_my_mind"] == "Demand slows." for item in listed.json())
     assert deleted.status_code == 204
 
 

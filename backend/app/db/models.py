@@ -87,4 +87,7 @@ class WatchlistItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ticker: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    watch_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    main_risk: Mapped[str] = mapped_column(Text, default="", server_default="")
+    change_my_mind: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
