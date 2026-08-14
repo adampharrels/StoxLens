@@ -20,6 +20,13 @@ class NewsArticleOut(BaseModel):
     impact: int = Field(ge=1, le=4)
 
 
+class WatchNoteOut(BaseModel):
+    ticker: str
+    watch_reason: str = ""
+    main_risk: str = ""
+    change_my_mind: str = ""
+
+
 class TriageItemOut(BaseModel):
     ticker: str
     attention_score: int = Field(ge=0, le=100)
@@ -30,6 +37,7 @@ class TriageItemOut(BaseModel):
     reasons: list[TriageReasonOut]
     news: list[NewsArticleOut]
     metrics: dict[str, float | int | str]
+    watch_note: WatchNoteOut
 
 
 class TriageResponse(BaseModel):

@@ -106,6 +106,13 @@ export interface NewsArticle {
   impact: number;
 }
 
+export interface WatchNote {
+  ticker: string;
+  watch_reason: string;
+  main_risk: string;
+  change_my_mind: string;
+}
+
 export interface TriageItem {
   ticker: string;
   attention_score: number;
@@ -116,6 +123,7 @@ export interface TriageItem {
   reasons: TriageReason[];
   news: NewsArticle[];
   metrics: Record<string, number | string>;
+  watch_note: WatchNote;
 }
 
 export interface TriageResponse {

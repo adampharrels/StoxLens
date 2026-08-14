@@ -206,6 +206,33 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
     assert item["attention_score"] >= 48
 
 
+def test_triage_includes_watch_notes(monkeypatch) -> None:
+    monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+    monkeypatch.setattr(
+        triage_service,
+        "list_watchlist",
+        lambda db: [
+            {
+                "ticker": "MSFT",
+                "created_at": datetime(2026, 8, 14, tzinfo=UTC),
+                "signal": "Tracked",
+                "watch_reason": "Azure growth and AI infrastructure demand.",
+                "main_risk": "Valuation is expensive.",
+                "change_my_mind": "Cloud growth slows.",
+            }
+        ],
+    )
+
+    response = client.get("/api/triage")
+    item = response.json()["items"][0]
+
+    assert response.status_code == 200
+    assert item["watch_note"]["watch_reason"] == "Azure growth and AI infrastructure demand."
+    assert item["watch_note"]["main_risk"] == "Valuation is expensive."
+
+
 def test_news_classifier_ignores_generic_articles() -> None:
     assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
     assert classify_news("Company mentioned in generic market wrap") == ("general", 0)

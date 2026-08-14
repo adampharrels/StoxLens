@@ -4,7 +4,7 @@ from math import sqrt
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.schemas.triage import NewsArticleOut, TriageItemOut, TriageReasonOut, TriageResponse
+from app.schemas.triage import NewsArticleOut, TriageItemOut, TriageReasonOut, TriageResponse, WatchNoteOut
 from app.services.market_data import (
     InsufficientPriceDataError,
     MarketDataError,
@@ -45,7 +45,21 @@ def _news_to_schema(article: NewsArticle) -> NewsArticleOut:
     )
 
 
-def score_ticker(ticker: str, df: pd.DataFrame, news: list[NewsArticle] | None = None) -> TriageItemOut:
+def _watch_note(ticker: str, item: dict[str, object] | None = None) -> WatchNoteOut:
+    return WatchNoteOut(
+        ticker=ticker.upper(),
+        watch_reason=str(item.get("watch_reason", "")) if item else "",
+        main_risk=str(item.get("main_risk", "")) if item else "",
+        change_my_mind=str(item.get("change_my_mind", "")) if item else "",
+    )
+
+
+def score_ticker(
+    ticker: str,
+    df: pd.DataFrame,
+    news: list[NewsArticle] | None = None,
+    watch_note: dict[str, object] | None = None,
+) -> TriageItemOut:
     signals = calculate_signals(df)
     quality = assess_data_quality(df)
     signals["data_quality_score"] = int(quality["score"])
@@ -138,19 +152,18 @@ def score_ticker(ticker: str, df: pd.DataFrame, news: list[NewsArticle] | None =
         reasons=reasons,
         news=[_news_to_schema(article) for article in news_items],
         metrics=metrics,
+        watch_note=_watch_note(ticker, watch_note),
     )
 
 
-def _watchlist_tickers(db: Session | None) -> list[str]:
-    return [str(item["ticker"]) for item in list_watchlist(db)]
+def _watchlist_items(db: Session | None) -> list[dict[str, object]]:
+    return [dict(item) for item in list_watchlist(db)]
 
 
 def build_triage(db: Session | None, tickers: str | None = None) -> TriageResponse:
-    ticker_list = (
-        [item.strip().upper() for item in tickers.split(",") if item.strip()]
-        if tickers
-        else _watchlist_tickers(db)
-    )
+    watch_items = [] if tickers else _watchlist_items(db)
+    watch_notes = {str(item["ticker"]): item for item in watch_items}
+    ticker_list = [item.strip().upper() for item in tickers.split(",") if item.strip()] if tickers else list(watch_notes)
     ticker_list = list(dict.fromkeys(ticker_list))[:12]
 
     items: list[TriageItemOut] = []
@@ -159,7 +172,7 @@ def build_triage(db: Session | None, tickers: str | None = None) -> TriageRespon
             df = clean_price_data(fetch_price_data(ticker))
         except (TickerNotFoundError, InsufficientPriceDataError, RateLimitError, MarketDataError):
             continue
-        items.append(score_ticker(ticker, df, fetch_ticker_news(ticker)))
+        items.append(score_ticker(ticker, df, fetch_ticker_news(ticker), watch_notes.get(ticker)))
 
     items.sort(key=lambda item: (item.attention_score, abs(item.price_change_pct)), reverse=True)
     return TriageResponse(generated_at=datetime.now(UTC), items=items)

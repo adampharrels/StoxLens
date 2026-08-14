@@ -35,6 +35,27 @@ function contribution(impact: number) {
   return `+${impact * 12}`;
 }
 
+function sentence(value: string) {
+  return value.trim().replace(/\.$/, "");
+}
+
+function primaryAlert(item: TriageItem) {
+  const reason = item.reasons[0];
+  return reason ? `${reason.label}: ${reason.detail}` : "Signals are stable. No material threshold crossed.";
+}
+
+function researchQuestion(item: TriageItem) {
+  const change = sentence(item.watch_note.change_my_mind);
+  const reason = sentence(item.watch_note.watch_reason);
+  if (change) {
+    return `Is this alert evidence that ${change.toLowerCase()}?`;
+  }
+  if (reason) {
+    return `Is this temporary noise, or is ${reason.toLowerCase()} changing?`;
+  }
+  return `Does this alert change the reason to keep watching ${item.ticker}?`;
+}
+
 export function TriageTable({ items }: { items: TriageItem[] }) {
   if (items.length === 0) {
     return (
@@ -49,6 +70,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
       {items.map((item) => {
         const Icon = severityIcon[item.severity];
         const topReasons = item.reasons.slice(0, 3);
+        const hasWatchNote = Boolean(item.watch_note.watch_reason || item.watch_note.main_risk || item.watch_note.change_my_mind);
         return (
           <div key={item.ticker} className="grid grid-cols-[92px_110px_1fr_90px] gap-4 border-b border-border py-4">
             <div>
@@ -68,6 +90,32 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
             </div>
 
             <div>
+              {hasWatchNote && (
+                <div className="mb-3 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1 border-b border-border pb-3 text-sm">
+                  {item.watch_note.watch_reason && (
+                    <>
+                      <div className="label">Why watching</div>
+                      <div className="text-secondary">{item.watch_note.watch_reason}</div>
+                    </>
+                  )}
+                  {item.watch_note.main_risk && (
+                    <>
+                      <div className="label">Main risk</div>
+                      <div className="text-secondary">{item.watch_note.main_risk}</div>
+                    </>
+                  )}
+                  {item.watch_note.change_my_mind && (
+                    <>
+                      <div className="label">Change my mind</div>
+                      <div className="text-secondary">{item.watch_note.change_my_mind}</div>
+                    </>
+                  )}
+                  <div className="label">Today's alert</div>
+                  <div className="text-secondary">{primaryAlert(item)}</div>
+                  <div className="label">Research question</div>
+                  <div className="text-secondary">{researchQuestion(item)}</div>
+                </div>
+              )}
               <div className="space-y-1">
                 {topReasons.length > 0 ? (
                   topReasons.map((reason) => (
