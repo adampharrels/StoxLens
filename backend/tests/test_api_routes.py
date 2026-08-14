@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import compare as compare_route
 from app.main import app
+from app.services import market_data as market_data_service
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
@@ -65,6 +66,40 @@ def test_research_maps_missing_ticker_to_404(monkeypatch) -> None:
 
     assert response.status_code == 404
     assert "MISSING" in response.json()["detail"]
+
+
+def test_metadata_falls_back_when_alphavantage_overview_is_empty(monkeypatch) -> None:
+    market_data_service._metadata_cache.clear()
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
+    monkeypatch.setattr(market_data_service, "_fetch_company_metadata_from_alphavantage", lambda ticker: {})
+    monkeypatch.setattr(
+        market_data_service,
+        "_fetch_company_metadata_from_quote_api",
+        lambda ticker: {
+            "name": "Microsoft Corporation",
+            "exchange": "NasdaqGS",
+            "sector": "Equity",
+            "industry": "",
+            "currency": "USD",
+            "market_cap": 3_000_000_000_000,
+            "pe_ratio": 34.2,
+            "eps": 12.3,
+            "revenue_ttm": None,
+            "revenue_growth_yoy": None,
+            "profit_margin": None,
+            "debt_to_equity": None,
+            "dividend_yield": 0.007,
+        },
+    )
+
+    try:
+        metadata = market_data_service.fetch_company_metadata("msft")
+
+        assert metadata["name"] == "Microsoft Corporation"
+        assert metadata["market_cap"] == 3_000_000_000_000
+        assert metadata["pe_ratio"] == 34.2
+    finally:
+        market_data_service._metadata_cache.clear()
 
 
 def test_generate_research_is_rate_limited(monkeypatch) -> None:
