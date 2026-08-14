@@ -2,8 +2,11 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import sqlite
+from sqlalchemy.schema import CreateTable
 
 from app.api.routes import compare as compare_route
+from app.db import models
 from app.main import app
 from app.services import market_data as market_data_service
 from app.services import news as news_service
@@ -186,6 +189,14 @@ def test_watchlist_can_add_and_remove_items() -> None:
     assert any(item["ticker"] == "AMD" for item in listed.json())
     assert any(item["change_my_mind"] == "Demand slows." for item in listed.json())
     assert deleted.status_code == 204
+
+
+def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
+    ddl = str(CreateTable(models.WatchlistItem.__table__).compile(dialect=sqlite.dialect()))
+
+    assert "watch_reason TEXT DEFAULT '' NOT NULL" in ddl
+    assert "main_risk TEXT DEFAULT '' NOT NULL" in ddl
+    assert "change_my_mind TEXT DEFAULT '' NOT NULL" in ddl
 
 
 def test_triage_ranks_watchlist_attention(monkeypatch) -> None:

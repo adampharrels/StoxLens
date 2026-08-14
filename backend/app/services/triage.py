@@ -21,6 +21,7 @@ from app.services.signals import calculate_signals
 from app.services.watchlist import list_watchlist
 
 _memory_triage_snapshots: dict[str, list[dict[str, object]]] = {}
+TRIAGE_SNAPSHOT_RETENTION = 20
 
 
 def _pct(value: float) -> str:
@@ -256,8 +257,8 @@ def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None
     )
 
 
-def _save_snapshot(db: Session | None, item: TriageItemOut) -> None:
-    payload = {
+def _snapshot_payload(item: TriageItemOut) -> dict[str, object]:
+    return {
         "ticker": item.ticker,
         "attention_score": item.attention_score,
         "severity": item.severity,
@@ -268,12 +269,40 @@ def _save_snapshot(db: Session | None, item: TriageItemOut) -> None:
         "moving_average_status": str(item.metrics.get("ma_signal", "")),
         "created_at": datetime.now(UTC),
     }
+
+
+def _save_snapshot(db: Session | None, item: TriageItemOut) -> models.TriageSnapshot | None:
+    payload = _snapshot_payload(item)
     if db is None:
         _memory_triage_snapshots.setdefault(item.ticker, []).append(payload)
-        _memory_triage_snapshots[item.ticker] = _memory_triage_snapshots[item.ticker][-20:]
-        return
+        _memory_triage_snapshots[item.ticker] = _memory_triage_snapshots[item.ticker][-TRIAGE_SNAPSHOT_RETENTION:]
+        return None
 
-    db.add(models.TriageSnapshot(**payload))
+    snapshot = models.TriageSnapshot(**payload)
+    db.add(snapshot)
+    return snapshot
+
+
+def _prune_snapshot_history(db: Session, tickers: list[str]) -> None:
+    for ticker in tickers:
+        stale_ids = [
+            snapshot_id
+            for (snapshot_id,) in (
+                db.query(models.TriageSnapshot.id)
+                .filter(models.TriageSnapshot.ticker == ticker)
+                .order_by(desc(models.TriageSnapshot.created_at), desc(models.TriageSnapshot.id))
+                .offset(TRIAGE_SNAPSHOT_RETENTION)
+                .all()
+            )
+        ]
+        if stale_ids:
+            db.query(models.TriageSnapshot).filter(models.TriageSnapshot.id.in_(stale_ids)).delete(synchronize_session=False)
+
+
+def _commit_snapshots(db: Session | None, tickers: list[str]) -> None:
+    if db is None:
+        return
+    _prune_snapshot_history(db, tickers)
     db.commit()
 
 
@@ -284,6 +313,7 @@ def build_triage(db: Session | None, tickers: str | None = None) -> TriageRespon
     ticker_list = list(dict.fromkeys(ticker_list))[:12]
 
     items: list[TriageItemOut] = []
+    saved_tickers: list[str] = []
     for ticker in ticker_list:
         try:
             df = clean_price_data(fetch_price_data(ticker))
@@ -293,7 +323,9 @@ def build_triage(db: Session | None, tickers: str | None = None) -> TriageRespon
         previous = _latest_snapshot(db, ticker)
         item.changes = _snapshot_changes(previous, item)
         _save_snapshot(db, item)
+        saved_tickers.append(ticker)
         items.append(item)
 
+    _commit_snapshots(db, saved_tickers)
     items.sort(key=lambda item: (item.attention_score, abs(item.price_change_pct)), reverse=True)
     return TriageResponse(generated_at=datetime.now(UTC), items=items)
