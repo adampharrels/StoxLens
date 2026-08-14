@@ -56,6 +56,11 @@ function researchQuestion(item: TriageItem) {
   return `Does this alert change the reason to keep watching ${item.ticker}?`;
 }
 
+function scoreDelta(value: number) {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
 export function TriageTable({ items }: { items: TriageItem[] }) {
   if (items.length === 0) {
     return (
@@ -114,6 +119,23 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
                   <div className="text-secondary">{primaryAlert(item)}</div>
                   <div className="label">Research question</div>
                   <div className="text-secondary">{researchQuestion(item)}</div>
+                </div>
+              )}
+              {item.changes && (
+                <div className="mb-3 border-b border-border pb-3">
+                  <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                    <span>What changed since last check</span>
+                    {item.changes.previous_severity && (
+                      <span className="numeric text-xs text-muted">
+                        {item.changes.previous_severity} to {item.severity} · {scoreDelta(item.changes.score_delta)}
+                      </span>
+                    )}
+                  </div>
+                  <ul className="space-y-1 text-sm text-secondary">
+                    {item.changes.details.slice(0, 4).map((detail) => (
+                      <li key={detail}>- {detail}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
               <div className="space-y-1">

@@ -27,6 +27,17 @@ class WatchNoteOut(BaseModel):
     change_my_mind: str = ""
 
 
+class TriageChangeOut(BaseModel):
+    previous_attention_score: int | None = None
+    previous_severity: Literal["Low", "Medium", "High"] | None = None
+    previous_created_at: datetime | None = None
+    score_delta: int = 0
+    severity_changed: bool = False
+    new_reasons: list[str] = Field(default_factory=list)
+    removed_reasons: list[str] = Field(default_factory=list)
+    details: list[str] = Field(default_factory=list)
+
+
 class TriageItemOut(BaseModel):
     ticker: str
     attention_score: int = Field(ge=0, le=100)
@@ -38,6 +49,7 @@ class TriageItemOut(BaseModel):
     news: list[NewsArticleOut]
     metrics: dict[str, float | int | str]
     watch_note: WatchNoteOut
+    changes: TriageChangeOut | None = None
 
 
 class TriageResponse(BaseModel):

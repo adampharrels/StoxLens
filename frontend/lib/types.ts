@@ -113,6 +113,17 @@ export interface WatchNote {
   change_my_mind: string;
 }
 
+export interface TriageChange {
+  previous_attention_score: number | null;
+  previous_severity: "Low" | "Medium" | "High" | null;
+  previous_created_at: string | null;
+  score_delta: number;
+  severity_changed: boolean;
+  new_reasons: string[];
+  removed_reasons: string[];
+  details: string[];
+}
+
 export interface TriageItem {
   ticker: string;
   attention_score: number;
@@ -124,6 +135,7 @@ export interface TriageItem {
   news: NewsArticle[];
   metrics: Record<string, number | string>;
   watch_note: WatchNote;
+  changes: TriageChange | null;
 }
 
 export interface TriageResponse {

@@ -233,6 +233,35 @@ def test_triage_includes_watch_notes(monkeypatch) -> None:
     assert item["watch_note"]["main_risk"] == "Valuation is expensive."
 
 
+def test_triage_compares_against_previous_snapshot(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def fake_fetch(ticker: str) -> pd.DataFrame:
+        calls["count"] += 1
+        prices = _prices()
+        if calls["count"] > 1:
+            prices.iloc[-1, prices.columns.get_loc("Close")] = prices["Close"].iloc[-2] * 0.92
+            prices.iloc[-1, prices.columns.get_loc("Adj Close")] = prices["Adj Close"].iloc[-2] * 0.92
+            prices.iloc[-1, prices.columns.get_loc("Volume")] = prices["Volume"].iloc[-1] * 3
+        return prices
+
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(triage_service, "fetch_price_data", fake_fetch)
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+
+    try:
+        first = client.get("/api/triage?tickers=msft").json()["items"][0]
+        second = client.get("/api/triage?tickers=msft").json()["items"][0]
+
+        assert first["changes"] is None
+        assert second["changes"]["previous_attention_score"] == first["attention_score"]
+        assert second["changes"]["score_delta"] == second["attention_score"] - first["attention_score"]
+        assert second["changes"]["details"]
+    finally:
+        triage_service._memory_triage_snapshots.clear()
+
+
 def test_news_classifier_ignores_generic_articles() -> None:
     assert classify_news("Company announces quarterly earnings date") == ("earnings", 4)
     assert classify_news("Company mentioned in generic market wrap") == ("general", 0)
