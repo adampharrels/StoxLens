@@ -84,6 +84,9 @@ export interface ReportListItem {
 export interface WatchlistItem {
   ticker: string;
   signal: string;
+  watch_reason: string;
+  main_risk: string;
+  change_my_mind: string;
   created_at: string;
 }
 

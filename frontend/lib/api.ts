@@ -1,5 +1,12 @@
 import type { ReportListItem, ResearchResponse, SignalSnapshot, TriageResponse, WatchlistItem } from "@/lib/types";
 
+export interface WatchlistPayload {
+  ticker: string;
+  watch_reason?: string;
+  main_risk?: string;
+  change_my_mind?: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -71,10 +78,10 @@ export const getCompare = (tickers: string[] = ["AAPL", "MSFT", "IBM"]) => {
 
 export const getWatchlist = () => getJson<WatchlistItem[]>("/api/watchlist");
 
-export const addWatchlistItem = (ticker: string) => postJson<WatchlistItem>("/api/watchlist", { ticker });
+export const addWatchlistItem = (payload: WatchlistPayload) => postJson<WatchlistItem>("/api/watchlist", payload);
 
-export const updateWatchlistItem = (ticker: string, replacement: string) =>
-  putJson<WatchlistItem>(`/api/watchlist/${encodeURIComponent(ticker)}`, { ticker: replacement });
+export const updateWatchlistItem = (ticker: string, payload: WatchlistPayload) =>
+  putJson<WatchlistItem>(`/api/watchlist/${encodeURIComponent(ticker)}`, payload);
 
 export const removeWatchlistItem = (ticker: string) => deleteJson(`/api/watchlist/${encodeURIComponent(ticker)}`);
 
