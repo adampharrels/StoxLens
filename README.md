@@ -2,18 +2,27 @@
 
 [![CI](https://github.com/adampharrels/StoxLens/actions/workflows/ci.yml/badge.svg)](https://github.com/adampharrels/StoxLens/actions/workflows/ci.yml)
 
-StoxLens is a full-stack equity research workspace for managing a watchlist, ranking which stocks need attention, calculating price-based signals, comparing tickers, and generating structured research briefs.
+StoxLens is a daily watchlist triage tool for investors and student analysts. It helps users review a stock watchlist faster by ranking which tickers need attention, explaining what changed, and connecting alerts back to the user's own watch notes.
 
-The app is built as an internal analyst tool, not a marketing site. The frontend is Next.js and Tailwind CSS. The backend is FastAPI, pandas, SQLAlchemy, Alpha Vantage market data, Yahoo Finance fallback endpoints, and optional Anthropic brief generation.
+The app is built as an internal analyst tool, not a marketing site. The frontend is Next.js and Tailwind CSS. The backend is FastAPI, pandas, SQLAlchemy, Alpha Vantage market data, Yahoo Finance fallback endpoints, deterministic triage rules, and optional Anthropic brief generation.
+
+## Screenshots
+
+![Today triage with watch notes](frontend/public/screenshots/today-triage.png)
+
+![Watchlist notes form](frontend/public/screenshots/watchlist-notes.png)
 
 ## Features
 
 - CRUD watchlist for saved tickers
+- Watch notes for each stock: watch reason, main risk, and what would change your mind
 - Today page that ranks watchlist stocks by attention urgency
+- Saved triage snapshots that compare the latest check against the previous check
+- "What changed since last check" summaries for score, severity, moving-average status, and new trigger reasons
 - Five-year price history fetched from Alpha Vantage when configured
 - Momentum, trend, volatility, drawdown, RSI, and volume-trend signals
 - News-aware triage using Alpha Vantage news sentiment plus deterministic relevance rules
-- Structured AI research brief generation
+- Optional structured research brief generation
 - Compare table across multiple tickers
 - Reports list for generated briefs
 - Docker Compose setup with PostgreSQL
@@ -193,12 +202,14 @@ GET  /api/news/{ticker}
 The practical workflow is:
 
 ```text
-1. Add tickers on /watchlist
+1. Add tickers and watch notes on /watchlist
 2. Open /today
 3. Backend loads the saved watchlist
 4. Backend fetches recent price data for each ticker
 5. Backend fetches recent price-relevant news when ALPHAVANTAGE_API_KEY is configured
 6. StoxLens ranks tickers by attention score and explains the trigger reasons
+7. Each run saves a triage snapshot
+8. The next run shows what changed since the previous saved check
 ```
 
 Technical triggers include moving-average breaks, RSI extremes, volatility spikes, drawdown thresholds, abnormal volume, unusual daily moves, and weak data quality.

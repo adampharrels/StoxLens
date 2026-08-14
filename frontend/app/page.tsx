@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, FileText, Search, Table2 } from "lucide-react";
+import { ArrowRight, FileText, ListChecks, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent } from "react";
@@ -8,22 +8,22 @@ import { starterTickers } from "@/lib/tickers";
 
 const workflow = [
   {
-    label: "Research",
-    href: "/research",
+    label: "Today",
+    href: "/today",
     icon: Search,
-    text: "Generate a quantitative research view for a ticker."
+    text: "Review which watchlist tickers need attention first."
   },
   {
-    label: "Compare",
-    href: "/compare",
-    icon: Table2,
-    text: "Review signal metrics across multiple equities."
+    label: "Watchlist",
+    href: "/watchlist",
+    icon: ListChecks,
+    text: "Save the reason, risk, and change-my-mind note for each stock."
   },
   {
     label: "Reports",
     href: "/reports",
     icon: FileText,
-    text: "Open generated research notes and report history."
+    text: "Open generated research notes and saved report history."
   }
 ];
 
@@ -42,7 +42,7 @@ export default function Home() {
       <div className="border-b border-border pb-4">
         <div className="text-lg font-medium">StoxLens</div>
         <div className="mt-1 max-w-[680px] text-sm leading-6 text-secondary">
-          Equity research workspace for price history, signal scoring, generated briefs, comparisons, and report review.
+          Daily watchlist triage for investors and student analysts. Rank which tickers need attention, explain what changed, and connect alerts back to your own watch notes.
         </div>
       </div>
 
