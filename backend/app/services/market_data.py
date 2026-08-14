@@ -286,7 +286,9 @@ def fetch_company_metadata(ticker: str) -> dict:
     if cached and datetime.utcnow() - cached[0] < CACHE_TTL:
         return cached[1].copy()
 
-    info = _fetch_company_metadata_from_alphavantage(key) if _alphavantage_api_key() else _fetch_company_metadata_from_quote_api(key)
+    info = _fetch_company_metadata_from_alphavantage(key) if _alphavantage_api_key() else {}
+    if not info:
+        info = _fetch_company_metadata_from_quote_api(key)
     if info:
         _metadata_cache[key] = (datetime.utcnow(), info.copy())
         return info

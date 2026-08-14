@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -87,4 +87,22 @@ class WatchlistItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ticker: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    watch_reason: Mapped[str] = mapped_column(Text, default="", server_default=text("''"), nullable=False)
+    main_risk: Mapped[str] = mapped_column(Text, default="", server_default=text("''"), nullable=False)
+    change_my_mind: Mapped[str] = mapped_column(Text, default="", server_default=text("''"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TriageSnapshot(Base):
+    __tablename__ = "triage_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(24), index=True)
+    attention_score: Mapped[int] = mapped_column(Integer)
+    severity: Mapped[str] = mapped_column(String(12))
+    top_reasons: Mapped[list[dict[str, str | int]]] = mapped_column(JsonType)
+    price: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float)
+    rsi: Mapped[float] = mapped_column(Float)
+    moving_average_status: Mapped[str] = mapped_column(String(24))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

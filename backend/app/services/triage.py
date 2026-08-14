@@ -2,9 +2,11 @@ from datetime import UTC, datetime
 from math import sqrt
 
 import pandas as pd
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.schemas.triage import NewsArticleOut, TriageItemOut, TriageReasonOut, TriageResponse
+from app.db import models
+from app.schemas.triage import NewsArticleOut, TriageChangeOut, TriageItemOut, TriageReasonOut, TriageResponse, WatchNoteOut
 from app.services.market_data import (
     InsufficientPriceDataError,
     MarketDataError,
@@ -17,6 +19,9 @@ from app.services.market_data import (
 from app.services.news import NewsArticle, fetch_ticker_news
 from app.services.signals import calculate_signals
 from app.services.watchlist import list_watchlist
+
+_memory_triage_snapshots: dict[str, list[dict[str, object]]] = {}
+TRIAGE_SNAPSHOT_RETENTION = 20
 
 
 def _pct(value: float) -> str:
@@ -34,6 +39,10 @@ def _reason(code: str, label: str, detail: str, impact: int) -> TriageReasonOut:
     return TriageReasonOut(code=code, label=label, detail=detail, impact=impact)
 
 
+def _reason_payload(reason: TriageReasonOut) -> dict[str, str | int]:
+    return {"code": reason.code, "label": reason.label, "detail": reason.detail, "impact": reason.impact}
+
+
 def _news_to_schema(article: NewsArticle) -> NewsArticleOut:
     return NewsArticleOut(
         title=article.title,
@@ -45,7 +54,21 @@ def _news_to_schema(article: NewsArticle) -> NewsArticleOut:
     )
 
 
-def score_ticker(ticker: str, df: pd.DataFrame, news: list[NewsArticle] | None = None) -> TriageItemOut:
+def _watch_note(ticker: str, item: dict[str, object] | None = None) -> WatchNoteOut:
+    return WatchNoteOut(
+        ticker=ticker.upper(),
+        watch_reason=str(item.get("watch_reason", "")) if item else "",
+        main_risk=str(item.get("main_risk", "")) if item else "",
+        change_my_mind=str(item.get("change_my_mind", "")) if item else "",
+    )
+
+
+def score_ticker(
+    ticker: str,
+    df: pd.DataFrame,
+    news: list[NewsArticle] | None = None,
+    watch_note: dict[str, object] | None = None,
+) -> TriageItemOut:
     signals = calculate_signals(df)
     quality = assess_data_quality(df)
     signals["data_quality_score"] = int(quality["score"])
@@ -123,6 +146,7 @@ def score_ticker(ticker: str, df: pd.DataFrame, news: list[NewsArticle] | None =
         "volatility_percentile": vol_percentile,
         "max_drawdown": float(signals["max_drawdown"]),
         "rsi": rsi,
+        "volume": latest_volume,
         "volume_ratio": volume_ratio,
         "ma_signal": str(signals["ma_signal"]),
         "data_quality_score": int(signals["data_quality_score"]),
@@ -138,28 +162,170 @@ def score_ticker(ticker: str, df: pd.DataFrame, news: list[NewsArticle] | None =
         reasons=reasons,
         news=[_news_to_schema(article) for article in news_items],
         metrics=metrics,
+        watch_note=_watch_note(ticker, watch_note),
     )
 
 
-def _watchlist_tickers(db: Session | None) -> list[str]:
-    return [str(item["ticker"]) for item in list_watchlist(db)]
+def _watchlist_items(db: Session | None) -> list[dict[str, object]]:
+    return [dict(item) for item in list_watchlist(db)]
+
+
+def _snapshot_reasons(snapshot: models.TriageSnapshot | dict[str, object]) -> list[dict[str, object]]:
+    value = snapshot.top_reasons if isinstance(snapshot, models.TriageSnapshot) else snapshot.get("top_reasons", [])
+    return value if isinstance(value, list) else []
+
+
+def _snapshot_value(snapshot: models.TriageSnapshot | dict[str, object], key: str) -> object:
+    return getattr(snapshot, key) if isinstance(snapshot, models.TriageSnapshot) else snapshot.get(key)
+
+
+def _latest_snapshot(db: Session | None, ticker: str) -> models.TriageSnapshot | dict[str, object] | None:
+    key = ticker.upper()
+    if db is None:
+        snapshots = _memory_triage_snapshots.get(key, [])
+        return snapshots[-1] if snapshots else None
+
+    return (
+        db.query(models.TriageSnapshot)
+        .filter(models.TriageSnapshot.ticker == key)
+        .order_by(desc(models.TriageSnapshot.created_at), desc(models.TriageSnapshot.id))
+        .first()
+    )
+
+
+def _ma_label(value: object) -> str:
+    labels = {
+        "above_both": "above 50D and 200D",
+        "above_50_only": "above 50D, below 200D",
+        "below_both": "below 50D and 200D",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None, item: TriageItemOut) -> TriageChangeOut | None:
+    if previous is None:
+        return None
+
+    previous_score = int(_snapshot_value(previous, "attention_score") or 0)
+    previous_severity = str(_snapshot_value(previous, "severity") or "Low")
+    previous_created_at = _snapshot_value(previous, "created_at")
+    previous_reason_codes = {str(reason.get("code")) for reason in _snapshot_reasons(previous) if isinstance(reason, dict)}
+    current_reason_codes = {reason.code for reason in item.reasons}
+    current_reason_map = {reason.code: reason for reason in item.reasons}
+
+    new_codes = current_reason_codes - previous_reason_codes
+    removed_codes = previous_reason_codes - current_reason_codes
+    new_reasons = [current_reason_map[code].label for code in new_codes if code in current_reason_map]
+    removed_reasons = [
+        str(reason.get("label"))
+        for reason in _snapshot_reasons(previous)
+        if isinstance(reason, dict) and str(reason.get("code")) in removed_codes
+    ]
+
+    details: list[str] = []
+    if previous_severity != item.severity:
+        details.append(f"Attention changed from {previous_severity} to {item.severity}.")
+
+    for code in new_codes:
+        reason = current_reason_map.get(code)
+        if reason:
+            details.append(reason.detail)
+
+    previous_ma = _snapshot_value(previous, "moving_average_status")
+    current_ma = item.metrics.get("ma_signal")
+    if previous_ma and current_ma and str(previous_ma) != str(current_ma):
+        details.append(f"Moving average status changed from {_ma_label(previous_ma)} to {_ma_label(current_ma)}.")
+
+    score_delta = item.attention_score - previous_score
+    if score_delta > 0:
+        details.append(f"Attention score increased from {previous_score} to {item.attention_score}.")
+    elif score_delta < 0:
+        details.append(f"Attention score decreased from {previous_score} to {item.attention_score}.")
+
+    if not details:
+        details.append("No material change from the previous saved check.")
+
+    return TriageChangeOut(
+        previous_attention_score=previous_score,
+        previous_severity=previous_severity,  # type: ignore[arg-type]
+        previous_created_at=previous_created_at if isinstance(previous_created_at, datetime) else None,
+        score_delta=score_delta,
+        severity_changed=previous_severity != item.severity,
+        new_reasons=new_reasons,
+        removed_reasons=removed_reasons,
+        details=details,
+    )
+
+
+def _snapshot_payload(item: TriageItemOut) -> dict[str, object]:
+    return {
+        "ticker": item.ticker,
+        "attention_score": item.attention_score,
+        "severity": item.severity,
+        "top_reasons": [_reason_payload(reason) for reason in item.reasons[:3]],
+        "price": item.price,
+        "volume": float(item.metrics.get("volume", 0.0)),
+        "rsi": float(item.metrics.get("rsi", 0.0)),
+        "moving_average_status": str(item.metrics.get("ma_signal", "")),
+        "created_at": datetime.now(UTC),
+    }
+
+
+def _save_snapshot(db: Session | None, item: TriageItemOut) -> models.TriageSnapshot | None:
+    payload = _snapshot_payload(item)
+    if db is None:
+        _memory_triage_snapshots.setdefault(item.ticker, []).append(payload)
+        _memory_triage_snapshots[item.ticker] = _memory_triage_snapshots[item.ticker][-TRIAGE_SNAPSHOT_RETENTION:]
+        return None
+
+    snapshot = models.TriageSnapshot(**payload)
+    db.add(snapshot)
+    return snapshot
+
+
+def _prune_snapshot_history(db: Session, tickers: list[str]) -> None:
+    for ticker in tickers:
+        stale_ids = [
+            snapshot_id
+            for (snapshot_id,) in (
+                db.query(models.TriageSnapshot.id)
+                .filter(models.TriageSnapshot.ticker == ticker)
+                .order_by(desc(models.TriageSnapshot.created_at), desc(models.TriageSnapshot.id))
+                .offset(TRIAGE_SNAPSHOT_RETENTION)
+                .all()
+            )
+        ]
+        if stale_ids:
+            db.query(models.TriageSnapshot).filter(models.TriageSnapshot.id.in_(stale_ids)).delete(synchronize_session=False)
+
+
+def _commit_snapshots(db: Session | None, tickers: list[str]) -> None:
+    if db is None:
+        return
+    _prune_snapshot_history(db, tickers)
+    db.commit()
 
 
 def build_triage(db: Session | None, tickers: str | None = None) -> TriageResponse:
-    ticker_list = (
-        [item.strip().upper() for item in tickers.split(",") if item.strip()]
-        if tickers
-        else _watchlist_tickers(db)
-    )
+    watch_items = [] if tickers else _watchlist_items(db)
+    watch_notes = {str(item["ticker"]): item for item in watch_items}
+    ticker_list = [item.strip().upper() for item in tickers.split(",") if item.strip()] if tickers else list(watch_notes)
     ticker_list = list(dict.fromkeys(ticker_list))[:12]
 
     items: list[TriageItemOut] = []
+    saved_tickers: list[str] = []
     for ticker in ticker_list:
         try:
             df = clean_price_data(fetch_price_data(ticker))
         except (TickerNotFoundError, InsufficientPriceDataError, RateLimitError, MarketDataError):
             continue
-        items.append(score_ticker(ticker, df, fetch_ticker_news(ticker)))
+        item = score_ticker(ticker, df, fetch_ticker_news(ticker), watch_notes.get(ticker))
+        previous = _latest_snapshot(db, ticker)
+        item.changes = _snapshot_changes(previous, item)
+        _save_snapshot(db, item)
+        saved_tickers.append(ticker)
+        items.append(item)
 
+    _commit_snapshots(db, saved_tickers)
     items.sort(key=lambda item: (item.attention_score, abs(item.price_change_pct)), reverse=True)
     return TriageResponse(generated_at=datetime.now(UTC), items=items)

@@ -2,9 +2,13 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import sqlite
+from sqlalchemy.schema import CreateTable
 
 from app.api.routes import compare as compare_route
+from app.db import models
 from app.main import app
+from app.services import market_data as market_data_service
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
@@ -67,6 +71,40 @@ def test_research_maps_missing_ticker_to_404(monkeypatch) -> None:
     assert "MISSING" in response.json()["detail"]
 
 
+def test_metadata_falls_back_when_alphavantage_overview_is_empty(monkeypatch) -> None:
+    market_data_service._metadata_cache.clear()
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
+    monkeypatch.setattr(market_data_service, "_fetch_company_metadata_from_alphavantage", lambda ticker: {})
+    monkeypatch.setattr(
+        market_data_service,
+        "_fetch_company_metadata_from_quote_api",
+        lambda ticker: {
+            "name": "Microsoft Corporation",
+            "exchange": "NasdaqGS",
+            "sector": "Equity",
+            "industry": "",
+            "currency": "USD",
+            "market_cap": 3_000_000_000_000,
+            "pe_ratio": 34.2,
+            "eps": 12.3,
+            "revenue_ttm": None,
+            "revenue_growth_yoy": None,
+            "profit_margin": None,
+            "debt_to_equity": None,
+            "dividend_yield": 0.007,
+        },
+    )
+
+    try:
+        metadata = market_data_service.fetch_company_metadata("msft")
+
+        assert metadata["name"] == "Microsoft Corporation"
+        assert metadata["market_cap"] == 3_000_000_000_000
+        assert metadata["pe_ratio"] == 34.2
+    finally:
+        market_data_service._metadata_cache.clear()
+
+
 def test_generate_research_is_rate_limited(monkeypatch) -> None:
     clear_rate_limits()
     monkeypatch.setenv("RESEARCH_GENERATE_LIMIT", "1")
@@ -121,17 +159,44 @@ def test_generate_research_is_rate_limited(monkeypatch) -> None:
 
 
 def test_watchlist_can_add_and_remove_items() -> None:
-    created = client.post("/api/watchlist", json={"ticker": "nvda"})
-    updated = client.put("/api/watchlist/NVDA", json={"ticker": "amd"})
+    created = client.post(
+        "/api/watchlist",
+        json={
+            "ticker": "nvda",
+            "watch_reason": "AI infrastructure demand.",
+            "main_risk": "Valuation is expensive.",
+            "change_my_mind": "Margins weaken.",
+        },
+    )
+    updated = client.put(
+        "/api/watchlist/NVDA",
+        json={
+            "ticker": "amd",
+            "watch_reason": "Data centre GPU share gains.",
+            "main_risk": "Execution risk.",
+            "change_my_mind": "Demand slows.",
+        },
+    )
     listed = client.get("/api/watchlist")
     deleted = client.delete("/api/watchlist/AMD")
 
     assert created.status_code == 201
     assert created.json()["ticker"] == "NVDA"
+    assert created.json()["watch_reason"] == "AI infrastructure demand."
     assert updated.status_code == 200
     assert updated.json()["ticker"] == "AMD"
+    assert updated.json()["main_risk"] == "Execution risk."
     assert any(item["ticker"] == "AMD" for item in listed.json())
+    assert any(item["change_my_mind"] == "Demand slows." for item in listed.json())
     assert deleted.status_code == 204
+
+
+def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
+    ddl = str(CreateTable(models.WatchlistItem.__table__).compile(dialect=sqlite.dialect()))
+
+    assert "watch_reason TEXT DEFAULT '' NOT NULL" in ddl
+    assert "main_risk TEXT DEFAULT '' NOT NULL" in ddl
+    assert "change_my_mind TEXT DEFAULT '' NOT NULL" in ddl
 
 
 def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
@@ -185,6 +250,62 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
     assert item["news"][0]["category"] == "guidance"
     assert any(reason["code"] == "news" for reason in item["reasons"])
     assert item["attention_score"] >= 48
+
+
+def test_triage_includes_watch_notes(monkeypatch) -> None:
+    monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+    monkeypatch.setattr(
+        triage_service,
+        "list_watchlist",
+        lambda db: [
+            {
+                "ticker": "MSFT",
+                "created_at": datetime(2026, 8, 14, tzinfo=UTC),
+                "signal": "Tracked",
+                "watch_reason": "Azure growth and AI infrastructure demand.",
+                "main_risk": "Valuation is expensive.",
+                "change_my_mind": "Cloud growth slows.",
+            }
+        ],
+    )
+
+    response = client.get("/api/triage")
+    item = response.json()["items"][0]
+
+    assert response.status_code == 200
+    assert item["watch_note"]["watch_reason"] == "Azure growth and AI infrastructure demand."
+    assert item["watch_note"]["main_risk"] == "Valuation is expensive."
+
+
+def test_triage_compares_against_previous_snapshot(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def fake_fetch(ticker: str) -> pd.DataFrame:
+        calls["count"] += 1
+        prices = _prices()
+        if calls["count"] > 1:
+            prices.iloc[-1, prices.columns.get_loc("Close")] = prices["Close"].iloc[-2] * 0.92
+            prices.iloc[-1, prices.columns.get_loc("Adj Close")] = prices["Adj Close"].iloc[-2] * 0.92
+            prices.iloc[-1, prices.columns.get_loc("Volume")] = prices["Volume"].iloc[-1] * 3
+        return prices
+
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(triage_service, "fetch_price_data", fake_fetch)
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+
+    try:
+        first = client.get("/api/triage?tickers=msft").json()["items"][0]
+        second = client.get("/api/triage?tickers=msft").json()["items"][0]
+
+        assert first["changes"] is None
+        assert second["changes"]["previous_attention_score"] == first["attention_score"]
+        assert second["changes"]["score_delta"] == second["attention_score"] - first["attention_score"]
+        assert second["changes"]["details"]
+    finally:
+        triage_service._memory_triage_snapshots.clear()
 
 
 def test_news_classifier_ignores_generic_articles() -> None:

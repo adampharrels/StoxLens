@@ -10,7 +10,7 @@ export default async function WatchlistPage() {
         <div className="border-b border-border pb-4">
           <div className="text-lg font-medium">Watchlist</div>
           <div className="mt-1 max-w-[620px] text-sm leading-6 text-secondary">
-            Save tickers for triage, comparison, and quick research access.
+            Save tickers with the reason you are watching, the main risk, and what would change your mind.
           </div>
         </div>
 

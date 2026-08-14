@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
+import { AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
 import { fmtPct } from "@/lib/format";
-import type { TriageItem } from "@/lib/types";
+import type { TriageItem, WatchNote } from "@/lib/types";
 
 const severityStyle: Record<TriageItem["severity"], string> = {
   High: "text-red-600",
@@ -35,6 +35,39 @@ function contribution(impact: number) {
   return `+${impact * 12}`;
 }
 
+function sentence(value: string) {
+  return value.trim().replace(/\.$/, "");
+}
+
+function primaryAlert(item: TriageItem) {
+  const reason = item.reasons[0];
+  return reason ? `${reason.label}: ${reason.detail}` : "Signals are stable. No material threshold crossed.";
+}
+
+const emptyWatchNote: WatchNote = {
+  ticker: "",
+  watch_reason: "",
+  main_risk: "",
+  change_my_mind: ""
+};
+
+function researchQuestion(item: TriageItem, note: WatchNote) {
+  const change = sentence(note.change_my_mind);
+  const reason = sentence(note.watch_reason);
+  if (change) {
+    return `Is this alert evidence that ${change.toLowerCase()}?`;
+  }
+  if (reason) {
+    return `Is this temporary noise, or is ${reason.toLowerCase()} changing?`;
+  }
+  return `Does this alert change the reason to keep watching ${item.ticker}?`;
+}
+
+function scoreDelta(value: number) {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
 export function TriageTable({ items }: { items: TriageItem[] }) {
   if (items.length === 0) {
     return (
@@ -49,8 +82,10 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
       {items.map((item) => {
         const Icon = severityIcon[item.severity];
         const topReasons = item.reasons.slice(0, 3);
+        const watchNote = item.watch_note ?? emptyWatchNote;
+        const hasWatchNote = Boolean(watchNote.watch_reason || watchNote.main_risk || watchNote.change_my_mind);
         return (
-          <div key={item.ticker} className="grid grid-cols-[92px_110px_1fr_90px] gap-4 border-b border-border py-4">
+          <div key={item.ticker} className="grid grid-cols-[92px_110px_minmax(0,1fr)] gap-4 border-b border-border py-4">
             <div>
               <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                 {item.ticker}
@@ -68,6 +103,49 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
             </div>
 
             <div>
+              {hasWatchNote && (
+                <div className="mb-3 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1 border-b border-border pb-3 text-sm">
+                  {watchNote.watch_reason && (
+                    <>
+                      <div className="label">Why watching</div>
+                      <div className="text-secondary">{watchNote.watch_reason}</div>
+                    </>
+                  )}
+                  {watchNote.main_risk && (
+                    <>
+                      <div className="label">Main risk</div>
+                      <div className="text-secondary">{watchNote.main_risk}</div>
+                    </>
+                  )}
+                  {watchNote.change_my_mind && (
+                    <>
+                      <div className="label">Change my mind</div>
+                      <div className="text-secondary">{watchNote.change_my_mind}</div>
+                    </>
+                  )}
+                  <div className="label">Today's alert</div>
+                  <div className="text-secondary">{primaryAlert(item)}</div>
+                  <div className="label">Research question</div>
+                  <div className="text-secondary">{researchQuestion(item, watchNote)}</div>
+                </div>
+              )}
+              {item.changes && (
+                <div className="mb-3 border-b border-border pb-3">
+                  <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                    <span>What changed since last check</span>
+                    {item.changes.previous_severity && (
+                      <span className="numeric text-xs text-muted">
+                        {item.changes.previous_severity} to {item.severity} · {scoreDelta(item.changes.score_delta)}
+                      </span>
+                    )}
+                  </div>
+                  <ul className="space-y-1 text-sm text-secondary">
+                    {item.changes.details.slice(0, 4).map((detail) => (
+                      <li key={detail}>- {detail}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="space-y-1">
                 {topReasons.length > 0 ? (
                   topReasons.map((reason) => (
@@ -103,12 +181,6 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
               )}
             </div>
 
-            <div className="flex items-start justify-end">
-              <Link href={`/research/${item.ticker}`} prefetch={false} className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
-                Open
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
           </div>
         );
       })}
