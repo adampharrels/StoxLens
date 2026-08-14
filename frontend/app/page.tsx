@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, FileText, ListChecks, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent } from "react";
@@ -8,22 +8,16 @@ import { starterTickers } from "@/lib/tickers";
 
 const workflow = [
   {
-    label: "Today",
-    href: "/today",
-    icon: Search,
-    text: "Review which watchlist tickers need attention first."
-  },
-  {
-    label: "Watchlist",
-    href: "/watchlist",
-    icon: ListChecks,
+    label: "1. Maintain watch notes",
     text: "Save the reason, risk, and change-my-mind note for each stock."
   },
   {
-    label: "Reports",
-    href: "/reports",
-    icon: FileText,
-    text: "Open generated research notes and saved report history."
+    label: "2. Check Today",
+    text: "Review which watchlist tickers need attention first."
+  },
+  {
+    label: "3. Open research only when needed",
+    text: "Use ticker links when an alert deserves deeper research."
   }
 ];
 
@@ -61,7 +55,6 @@ export default function Home() {
             </div>
             <button type="submit" className="inline-flex h-8 items-center gap-2 border border-accent bg-accent px-3 text-sm text-white">
               Open
-              <ArrowRight className="h-4 w-4" />
             </button>
           </form>
 
@@ -74,21 +67,14 @@ export default function Home() {
           </div>
 
           <div className="mt-7">
-            <div className="label mb-2">Workspace</div>
+            <div className="label mb-2">Daily Workflow</div>
             <div className="border-t border-border">
-              {workflow.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link key={item.href} href={item.href} prefetch={false} className="grid grid-cols-[120px_1fr_20px] items-center border-b border-border py-3 hover:bg-subtle">
-                    <span className="inline-flex items-center gap-2 text-sm font-medium">
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </span>
-                    <span className="text-sm text-secondary">{item.text}</span>
-                    <ArrowRight className="h-4 w-4 text-muted" />
-                  </Link>
-                );
-              })}
+              {workflow.map((item) => (
+                <div key={item.label} className="grid grid-cols-[180px_1fr] items-center border-b border-border py-3">
+                  <span className="text-sm font-medium">{item.label}</span>
+                  <span className="text-sm text-secondary">{item.text}</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>

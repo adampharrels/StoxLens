@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
+import { AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
 import { fmtPct } from "@/lib/format";
 import type { TriageItem, WatchNote } from "@/lib/types";
 
@@ -85,7 +85,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
         const watchNote = item.watch_note ?? emptyWatchNote;
         const hasWatchNote = Boolean(watchNote.watch_reason || watchNote.main_risk || watchNote.change_my_mind);
         return (
-          <div key={item.ticker} className="grid grid-cols-[92px_110px_1fr_90px] gap-4 border-b border-border py-4">
+          <div key={item.ticker} className="grid grid-cols-[92px_110px_minmax(0,1fr)] gap-4 border-b border-border py-4">
             <div>
               <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                 {item.ticker}
@@ -181,12 +181,6 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
               )}
             </div>
 
-            <div className="flex items-start justify-end">
-              <Link href={`/research/${item.ticker}`} prefetch={false} className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
-                Open
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
           </div>
         );
       })}

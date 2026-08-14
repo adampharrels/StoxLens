@@ -2,7 +2,7 @@
 
 import { FormEvent, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import { addWatchlistItem, removeWatchlistItem, updateWatchlistItem } from "@/lib/api";
 import type { WatchlistItem } from "@/lib/types";
 
@@ -224,7 +224,7 @@ export function WatchlistManager({ initialItems }: { initialItems: WatchlistItem
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-[110px_1fr_120px_120px] items-start gap-4">
+                <div className="grid grid-cols-[110px_1fr_120px_80px] items-start gap-4">
                   <div>
                     <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                       {item.ticker}
@@ -247,9 +247,6 @@ export function WatchlistManager({ initialItems }: { initialItems: WatchlistItem
                   </div>
                   <div className="text-sm text-secondary">{item.signal}</div>
                   <div className="flex justify-end gap-2">
-                    <Link href={`/research/${item.ticker}`} prefetch={false} className="inline-flex h-7 w-7 items-center justify-center border border-border hover:bg-subtle" title="Open research">
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
                     <button type="button" onClick={() => beginEdit(item.ticker)} className="inline-flex h-7 w-7 items-center justify-center border border-border hover:bg-subtle" title="Edit">
                       <Pencil className="h-4 w-4" />
                     </button>
