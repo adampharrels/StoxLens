@@ -7,7 +7,10 @@ export interface WatchlistPayload {
   change_my_mind?: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BROWSER_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const SERVER_API_URL = process.env.SERVER_API_URL ?? BROWSER_API_URL;
+
+const apiUrl = () => (typeof window === "undefined" ? SERVER_API_URL : BROWSER_API_URL);
 
 export class ApiError extends Error {
   status: number;
@@ -20,7 +23,7 @@ export class ApiError extends Error {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
+  const res = await fetch(`${apiUrl()}${path}`, { cache: "no-store" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(res.status, body.detail ?? `API request failed: ${res.status}`);
@@ -29,7 +32,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${apiUrl()}${path}`, {
     method: "POST",
     cache: "no-store",
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -43,7 +46,7 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function putJson<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${apiUrl()}${path}`, {
     method: "PUT",
     cache: "no-store",
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -57,7 +60,7 @@ async function putJson<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function deleteJson(path: string): Promise<void> {
-  const res = await fetch(`${API_URL}${path}`, { method: "DELETE", cache: "no-store" });
+  const res = await fetch(`${apiUrl()}${path}`, { method: "DELETE", cache: "no-store" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(res.status, body.detail ?? `API request failed: ${res.status}`);

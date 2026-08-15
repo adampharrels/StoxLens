@@ -280,6 +280,9 @@ If port `8000` is already in use, stop the existing process or run the backend o
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8001
+SERVER_API_URL=http://localhost:8001
 ```
 
 for the frontend.
+
+When running with Docker Compose, `NEXT_PUBLIC_API_URL` should stay browser-facing, for example `http://localhost:8000`. Server-rendered Next.js pages use `SERVER_API_URL=http://backend:8000` so the frontend container can reach the backend container over Docker's internal network.
