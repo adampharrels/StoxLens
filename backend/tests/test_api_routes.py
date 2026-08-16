@@ -12,7 +12,7 @@ from app.services import market_data as market_data_service
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
-from app.services.market_data import TickerNotFoundError
+from app.services.market_data import MarketDataError, RateLimitError, TickerNotFoundError
 from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
 
@@ -71,6 +71,41 @@ def test_research_maps_missing_ticker_to_404(monkeypatch) -> None:
     assert "MISSING" in response.json()["detail"]
 
 
+def test_research_does_not_expose_provider_api_key_messages(monkeypatch) -> None:
+    leaked_message = (
+        "We have detected your API key as SECRET and our standard API rate limit is 25 requests per day. "
+        "Yahoo fallback is rate-limited: Yahoo Finance rate limit reached."
+    )
+
+    def fake_fetch(ticker: str) -> pd.DataFrame:
+        raise RateLimitError(leaked_message)
+
+    monkeypatch.setattr(research_service, "fetch_price_data", fake_fetch)
+
+    response = client.get("/api/research/AAPL")
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Market data provider rate limit reached. Try again later."
+    assert "SECRET" not in response.text
+    assert "API key" not in response.text
+
+
+def test_compare_does_not_expose_provider_api_key_messages(monkeypatch) -> None:
+    leaked_message = "Could not fetch https://example.test/query?apikey=SECRET"
+
+    def fake_fetch(ticker: str) -> pd.DataFrame:
+        raise MarketDataError(leaked_message)
+
+    monkeypatch.setattr(compare_route, "fetch_price_data", fake_fetch)
+
+    response = client.get("/api/compare?tickers=AAPL")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Market data provider is unavailable. Try again later."
+    assert "SECRET" not in response.text
+    assert "apikey" not in response.text
+
+
 def test_metadata_falls_back_when_alphavantage_overview_is_empty(monkeypatch) -> None:
     market_data_service._metadata_cache.clear()
     monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
@@ -101,6 +136,63 @@ def test_metadata_falls_back_when_alphavantage_overview_is_empty(monkeypatch) ->
         assert metadata["name"] == "Microsoft Corporation"
         assert metadata["market_cap"] == 3_000_000_000_000
         assert metadata["pe_ratio"] == 34.2
+    finally:
+        market_data_service._metadata_cache.clear()
+
+
+def test_empty_metadata_cache_expires_quickly() -> None:
+    empty_metadata = {
+        "name": "AAPL",
+        "exchange": "",
+        "sector": "Equity",
+        "industry": "",
+        "currency": "",
+        "market_cap": None,
+        "pe_ratio": None,
+        "eps": None,
+        "revenue_ttm": None,
+        "revenue_growth_yoy": None,
+        "profit_margin": None,
+        "debt_to_equity": None,
+        "dividend_yield": None,
+    }
+    provider_metadata = {**empty_metadata, "market_cap": 3_000_000_000_000}
+
+    assert market_data_service._metadata_cache_ttl(empty_metadata) == market_data_service.METADATA_MISS_TTL
+    assert market_data_service._metadata_cache_ttl(provider_metadata) == market_data_service.CACHE_TTL
+
+
+def test_metadata_keeps_last_success_when_refresh_is_empty(monkeypatch) -> None:
+    market_data_service._metadata_cache.clear()
+    useful_metadata = {
+        "name": "Apple Inc.",
+        "exchange": "NasdaqGS",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "currency": "USD",
+        "market_cap": 3_000_000_000_000,
+        "pe_ratio": 31.5,
+        "eps": 6.4,
+        "revenue_ttm": 390_000_000_000,
+        "revenue_growth_yoy": None,
+        "profit_margin": 0.24,
+        "debt_to_equity": None,
+        "dividend_yield": 0.005,
+    }
+    market_data_service._metadata_cache["AAPL"] = (
+        datetime.utcnow() - market_data_service.CACHE_TTL - timedelta(seconds=1),
+        useful_metadata,
+    )
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
+    monkeypatch.setattr(market_data_service, "_fetch_company_metadata_from_alphavantage", lambda ticker: {})
+    monkeypatch.setattr(market_data_service, "_fetch_company_metadata_from_quote_api", lambda ticker: {})
+
+    try:
+        metadata = market_data_service.fetch_company_metadata("AAPL")
+
+        assert metadata["name"] == "Apple Inc."
+        assert metadata["market_cap"] == 3_000_000_000_000
+        assert metadata["profit_margin"] == 0.24
     finally:
         market_data_service._metadata_cache.clear()
 

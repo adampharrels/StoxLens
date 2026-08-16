@@ -8,6 +8,7 @@ from app.services.market_data import (
     assess_data_quality,
     clean_price_data,
     fetch_price_data,
+    public_market_data_error,
 )
 from app.services.signals import calculate_signals
 
@@ -31,9 +32,9 @@ def compare(tickers: str = "AAPL") -> dict[str, dict]:
         except InsufficientPriceDataError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RateLimitError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
+            raise HTTPException(status_code=429, detail=public_market_data_error(exc)) from exc
         except MarketDataError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(status_code=502, detail=public_market_data_error(exc)) from exc
         signals = calculate_signals(df)
         quality = assess_data_quality(df)
         signals["data_quality_score"] = int(quality["score"])
