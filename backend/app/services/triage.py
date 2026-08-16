@@ -195,6 +195,22 @@ def _snapshot_value(snapshot: models.TriageSnapshot | dict[str, object], key: st
     return getattr(snapshot, key) if isinstance(snapshot, models.TriageSnapshot) else snapshot.get(key)
 
 
+def _snapshot_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def _snapshot_date(value: object, fallback: date) -> date:
     if isinstance(value, datetime):
         return value.date()
@@ -252,7 +268,7 @@ def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None
 
     previous_score = int(_snapshot_value(previous, "attention_score") or 0)
     previous_severity = str(_snapshot_value(previous, "severity") or "Low")
-    previous_created_at = _snapshot_value(previous, "created_at")
+    previous_created_at = _snapshot_datetime(_snapshot_value(previous, "created_at"))
     previous_reason_codes = {str(reason.get("code")) for reason in _snapshot_reasons(previous) if isinstance(reason, dict)}
     current_reason_codes = {reason.code for reason in item.reasons}
     current_reason_map = {reason.code: reason for reason in item.reasons}
@@ -292,7 +308,7 @@ def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None
     return TriageChangeOut(
         previous_attention_score=previous_score,
         previous_severity=previous_severity,  # type: ignore[arg-type]
-        previous_created_at=previous_created_at if isinstance(previous_created_at, datetime) else None,
+        previous_created_at=previous_created_at,
         score_delta=score_delta,
         severity_changed=previous_severity != item.severity,
         new_reasons=new_reasons,
@@ -365,8 +381,7 @@ def _snapshot_item(
     watch_note: dict[str, object] | None,
 ) -> TriageItemOut:
     ticker = str(_snapshot_value(snapshot, "ticker"))
-    created_at = _snapshot_value(snapshot, "created_at")
-    generated_at = created_at if isinstance(created_at, datetime) else datetime.now(UTC)
+    generated_at = _snapshot_datetime(_snapshot_value(snapshot, "created_at")) or datetime.now(UTC)
     reasons = [
         TriageReasonOut(
             code=str(reason.get("code", "")),
@@ -377,18 +392,23 @@ def _snapshot_item(
         for reason in _snapshot_reasons(snapshot)
         if isinstance(reason, dict)
     ]
-    news = [
-        NewsArticleOut(
-            title=str(article.get("title", "")),
-            url=str(article.get("url", "")),
-            source=str(article.get("source", "News")),
-            published_at=datetime.fromisoformat(str(article.get("published_at"))),
-            category=str(article.get("category", "")),
-            impact=int(article.get("impact", 1)),
+    news: list[NewsArticleOut] = []
+    for article in _snapshot_news(snapshot):
+        if not isinstance(article, dict):
+            continue
+        published_at = _snapshot_datetime(article.get("published_at"))
+        if published_at is None:
+            continue
+        news.append(
+            NewsArticleOut(
+                title=str(article.get("title", "")),
+                url=str(article.get("url", "")),
+                source=str(article.get("source", "News")),
+                published_at=published_at,
+                category=str(article.get("category", "")),
+                impact=int(article.get("impact", 1)),
+            )
         )
-        for article in _snapshot_news(snapshot)
-        if isinstance(article, dict) and article.get("published_at")
-    ]
 
     return TriageItemOut(
         ticker=ticker,
@@ -419,8 +439,8 @@ def read_triage(db: Session | None, tickers: str | None = None) -> TriageRespons
             continue
         item = _snapshot_item(snapshots[0], watch_notes.get(ticker))
         item.changes = _snapshot_changes(snapshots[1] if len(snapshots) > 1 else None, item)
-        snapshot_created_at = _snapshot_value(snapshots[0], "created_at")
-        if isinstance(snapshot_created_at, datetime) and (generated_at is None or snapshot_created_at > generated_at):
+        snapshot_created_at = _snapshot_datetime(_snapshot_value(snapshots[0], "created_at"))
+        if snapshot_created_at is not None and (generated_at is None or snapshot_created_at > generated_at):
             generated_at = snapshot_created_at
         items.append(item)
 

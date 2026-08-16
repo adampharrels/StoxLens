@@ -450,13 +450,31 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
             "attention_score": 24,
             "severity": "Low",
             "top_reasons": [{"code": "volume_surge", "label": "Volume surge", "detail": "Volume increased.", "impact": 2}],
+            "top_news": [
+                {
+                    "title": "MSFT raises cloud guidance",
+                    "url": "https://example.com/msft",
+                    "source": "Example",
+                    "published_at": "2026-08-14T08:30:00Z",
+                    "category": "guidance",
+                    "impact": 4,
+                },
+                {
+                    "title": "Bad legacy timestamp",
+                    "url": "https://example.com/bad",
+                    "source": "Example",
+                    "published_at": "not-a-date",
+                    "category": "guidance",
+                    "impact": 4,
+                },
+            ],
             "price": 410.0,
             "price_change_pct": -0.021,
             "as_of_date": "2026-08-14",
             "volume": 1200000.0,
             "rsi": 55.0,
             "moving_average_status": "above_both",
-            "created_at": datetime(2026, 8, 14, 9, 0, tzinfo=UTC),
+            "created_at": datetime(2026, 8, 14, 9, 0),
         }
     ]
 
@@ -470,10 +488,12 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
         body = response.json()
 
         assert response.status_code == 200
+        assert datetime.fromisoformat(body["generated_at"].replace("Z", "+00:00")).tzinfo is not None
         assert body["items"][0]["ticker"] == "MSFT"
         assert body["items"][0]["attention_score"] == 24
         assert body["items"][0]["price_change_pct"] == -0.021
         assert body["items"][0]["as_of_date"] == "2026-08-14"
+        assert [article["title"] for article in body["items"][0]["news"]] == ["MSFT raises cloud guidance"]
         assert body["items"][0]["reasons"][0]["code"] == "volume_surge"
     finally:
         triage_service._memory_triage_snapshots.clear()
