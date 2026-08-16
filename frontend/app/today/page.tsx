@@ -1,7 +1,14 @@
 import { TriageTable } from "@/components/triage/TriageTable";
 import { TriageLegend } from "@/components/triage/TriageLegend";
 import { ApiUnavailable } from "@/components/layout/ApiUnavailable";
-import { ApiError, getTriage } from "@/lib/api";
+import { ApiError, getTriage, runTriage } from "@/lib/api";
+import { revalidatePath } from "next/cache";
+
+async function runTriageAction() {
+  "use server";
+  await runTriage();
+  revalidatePath("/today");
+}
 
 function generatedLabel(value: string) {
   return new Date(value).toLocaleString("en-AU", {
@@ -21,8 +28,19 @@ export default async function TodayPage() {
     return (
       <div className="px-6 py-4">
         <div className="border-b border-border pb-4">
-          <div className="text-lg font-medium">Today</div>
-          <div className="mt-1 max-w-[620px] text-sm leading-6 text-secondary">Watchlist names sorted by attention urgency.</div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-lg font-medium">Today</div>
+              <div className="mt-1 max-w-[620px] text-sm leading-6 text-secondary">
+                Latest saved watchlist triage, sorted by attention urgency.
+              </div>
+            </div>
+            <form action={runTriageAction}>
+              <button className="h-8 border border-border px-3 text-sm text-primary hover:border-accent" type="submit">
+                Run check
+              </button>
+            </form>
+          </div>
         </div>
 
         <div className="grid max-w-[820px] grid-cols-3 gap-6 py-5">

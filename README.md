@@ -194,6 +194,7 @@ PUT  /api/watchlist/{ticker}
 DELETE /api/watchlist/{ticker}
 GET  /api/compare
 GET  /api/triage
+POST /api/triage/run
 GET  /api/news/{ticker}
 ```
 
@@ -204,12 +205,14 @@ The practical workflow is:
 ```text
 1. Add tickers and watch notes on /watchlist
 2. Open /today
-3. Backend loads the saved watchlist
-4. Backend fetches recent price data for each ticker
-5. Backend fetches recent price-relevant news when ALPHAVANTAGE_API_KEY is configured
-6. StoxLens ranks tickers by attention score and explains the trigger reasons
-7. Each run saves a triage snapshot
-8. The next run shows what changed since the previous saved check
+3. Today reads the latest saved triage snapshot without changing state
+4. Run a new check when you want a fresh review
+5. Backend loads the saved watchlist
+6. Backend fetches recent price data for each ticker
+7. Backend fetches recent price-relevant news when ALPHAVANTAGE_API_KEY is configured
+8. StoxLens ranks tickers by attention score and explains the trigger reasons
+9. The run saves a triage snapshot
+10. The next run shows what changed since the previous saved check
 ```
 
 Technical triggers include moving-average breaks, RSI extremes, volatility spikes, drawdown thresholds, abnormal volume, unusual daily moves, and weak data quality.
