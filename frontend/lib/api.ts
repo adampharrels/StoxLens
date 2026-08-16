@@ -89,3 +89,5 @@ export const updateWatchlistItem = (ticker: string, payload: WatchlistPayload) =
 export const removeWatchlistItem = (ticker: string) => deleteJson(`/api/watchlist/${encodeURIComponent(ticker)}`);
 
 export const getTriage = () => getJson<TriageResponse>("/api/triage");
+
+export const runTriage = () => postJson<TriageResponse>("/api/triage/run");

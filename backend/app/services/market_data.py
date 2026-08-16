@@ -15,8 +15,9 @@ YAHOO_HEADERS = {
 }
 YAHOO_CHART_HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]
 CACHE_TTL = timedelta(minutes=15)
+METADATA_MISS_TTL = timedelta(minutes=1)
 _price_cache: dict[str, tuple[datetime, pd.DataFrame]] = {}
-_metadata_cache: dict[str, tuple[datetime, dict[str, str]]] = {}
+_metadata_cache: dict[str, tuple[datetime, dict]] = {}
 
 
 class MarketDataError(Exception):
@@ -41,6 +42,12 @@ class YahooRateLimitError(RateLimitError):
 
 class InsufficientPriceDataError(MarketDataError):
     pass
+
+
+def public_market_data_error(exc: MarketDataError) -> str:
+    if isinstance(exc, RateLimitError):
+        return "Market data provider rate limit reached. Try again later."
+    return "Market data provider is unavailable. Try again later."
 
 
 def fetch_price_data(ticker: str) -> pd.DataFrame:
@@ -283,7 +290,7 @@ def clean_price_data(df: pd.DataFrame) -> pd.DataFrame:
 def fetch_company_metadata(ticker: str) -> dict:
     key = ticker.upper()
     cached = _metadata_cache.get(key)
-    if cached and datetime.utcnow() - cached[0] < CACHE_TTL:
+    if cached and datetime.utcnow() - cached[0] < _metadata_cache_ttl(cached[1]):
         return cached[1].copy()
 
     info = _fetch_company_metadata_from_alphavantage(key) if _alphavantage_api_key() else {}
@@ -292,6 +299,10 @@ def fetch_company_metadata(ticker: str) -> dict:
     if info:
         _metadata_cache[key] = (datetime.utcnow(), info.copy())
         return info
+
+    # Keep the last useful fundamentals instead of replacing them with a temporary provider miss.
+    if cached and _metadata_cache_ttl(cached[1]) == CACHE_TTL:
+        return cached[1].copy()
 
     fallback = {
         "name": key,
@@ -310,6 +321,23 @@ def fetch_company_metadata(ticker: str) -> dict:
     }
     _metadata_cache[key] = (datetime.utcnow(), fallback.copy())
     return fallback
+
+
+def _metadata_cache_ttl(info: dict) -> timedelta:
+    fundamental_keys = (
+        "market_cap",
+        "pe_ratio",
+        "eps",
+        "revenue_ttm",
+        "revenue_growth_yoy",
+        "profit_margin",
+        "debt_to_equity",
+        "dividend_yield",
+    )
+    # Empty fallback metadata should be retried soon; real provider data can be cached longer.
+    has_fundamentals = any(info.get(key) is not None for key in fundamental_keys)
+    has_company_context = bool(info.get("exchange")) or bool(info.get("industry"))
+    return CACHE_TTL if has_fundamentals or has_company_context else METADATA_MISS_TTL
 
 
 def _fetch_company_metadata_from_alphavantage(ticker: str) -> dict:

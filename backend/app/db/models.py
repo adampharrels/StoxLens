@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -101,7 +101,10 @@ class TriageSnapshot(Base):
     attention_score: Mapped[int] = mapped_column(Integer)
     severity: Mapped[str] = mapped_column(String(12))
     top_reasons: Mapped[list[dict[str, str | int]]] = mapped_column(JsonType)
+    top_news: Mapped[list[dict[str, str | int]]] = mapped_column(JsonType, default=list, server_default=text("'[]'"), nullable=False)
     price: Mapped[float] = mapped_column(Float)
+    price_change_pct: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
+    as_of_date: Mapped[date] = mapped_column(Date, default=date.today, server_default=text("CURRENT_DATE"), nullable=False)
     volume: Mapped[float] = mapped_column(Float)
     rsi: Mapped[float] = mapped_column(Float)
     moving_average_status: Mapped[str] = mapped_column(String(24))

@@ -16,6 +16,7 @@ from app.services.market_data import (
     fetch_company_metadata,
     fetch_price_data,
     market_data_source,
+    public_market_data_error,
 )
 from app.services.reports import latest_report, report_to_schema, save_report
 from app.services.signals import calculate_signals
@@ -29,9 +30,9 @@ def load_clean_prices(ticker: str):
     except InsufficientPriceDataError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RateLimitError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+        raise HTTPException(status_code=429, detail=public_market_data_error(exc)) from exc
     except MarketDataError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=public_market_data_error(exc)) from exc
 
 
 def _history(df) -> list[PricePoint]:

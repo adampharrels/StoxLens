@@ -12,7 +12,7 @@ from app.services import market_data as market_data_service
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
-from app.services.market_data import TickerNotFoundError
+from app.services.market_data import MarketDataError, RateLimitError, TickerNotFoundError
 from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
 
@@ -71,6 +71,41 @@ def test_research_maps_missing_ticker_to_404(monkeypatch) -> None:
     assert "MISSING" in response.json()["detail"]
 
 
+def test_research_does_not_expose_provider_api_key_messages(monkeypatch) -> None:
+    leaked_message = (
+        "We have detected your API key as SECRET and our standard API rate limit is 25 requests per day. "
+        "Yahoo fallback is rate-limited: Yahoo Finance rate limit reached."
+    )
+
+    def fake_fetch(ticker: str) -> pd.DataFrame:
+        raise RateLimitError(leaked_message)
+
+    monkeypatch.setattr(research_service, "fetch_price_data", fake_fetch)
+
+    response = client.get("/api/research/AAPL")
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Market data provider rate limit reached. Try again later."
+    assert "SECRET" not in response.text
+    assert "API key" not in response.text
+
+
+def test_compare_does_not_expose_provider_api_key_messages(monkeypatch) -> None:
+    leaked_message = "Could not fetch https://example.test/query?apikey=SECRET"
+
+    def fake_fetch(ticker: str) -> pd.DataFrame:
+        raise MarketDataError(leaked_message)
+
+    monkeypatch.setattr(compare_route, "fetch_price_data", fake_fetch)
+
+    response = client.get("/api/compare?tickers=AAPL")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Market data provider is unavailable. Try again later."
+    assert "SECRET" not in response.text
+    assert "apikey" not in response.text
+
+
 def test_metadata_falls_back_when_alphavantage_overview_is_empty(monkeypatch) -> None:
     market_data_service._metadata_cache.clear()
     monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
@@ -101,6 +136,63 @@ def test_metadata_falls_back_when_alphavantage_overview_is_empty(monkeypatch) ->
         assert metadata["name"] == "Microsoft Corporation"
         assert metadata["market_cap"] == 3_000_000_000_000
         assert metadata["pe_ratio"] == 34.2
+    finally:
+        market_data_service._metadata_cache.clear()
+
+
+def test_empty_metadata_cache_expires_quickly() -> None:
+    empty_metadata = {
+        "name": "AAPL",
+        "exchange": "",
+        "sector": "Equity",
+        "industry": "",
+        "currency": "",
+        "market_cap": None,
+        "pe_ratio": None,
+        "eps": None,
+        "revenue_ttm": None,
+        "revenue_growth_yoy": None,
+        "profit_margin": None,
+        "debt_to_equity": None,
+        "dividend_yield": None,
+    }
+    provider_metadata = {**empty_metadata, "market_cap": 3_000_000_000_000}
+
+    assert market_data_service._metadata_cache_ttl(empty_metadata) == market_data_service.METADATA_MISS_TTL
+    assert market_data_service._metadata_cache_ttl(provider_metadata) == market_data_service.CACHE_TTL
+
+
+def test_metadata_keeps_last_success_when_refresh_is_empty(monkeypatch) -> None:
+    market_data_service._metadata_cache.clear()
+    useful_metadata = {
+        "name": "Apple Inc.",
+        "exchange": "NasdaqGS",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "currency": "USD",
+        "market_cap": 3_000_000_000_000,
+        "pe_ratio": 31.5,
+        "eps": 6.4,
+        "revenue_ttm": 390_000_000_000,
+        "revenue_growth_yoy": None,
+        "profit_margin": 0.24,
+        "debt_to_equity": None,
+        "dividend_yield": 0.005,
+    }
+    market_data_service._metadata_cache["AAPL"] = (
+        datetime.utcnow() - market_data_service.CACHE_TTL - timedelta(seconds=1),
+        useful_metadata,
+    )
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
+    monkeypatch.setattr(market_data_service, "_fetch_company_metadata_from_alphavantage", lambda ticker: {})
+    monkeypatch.setattr(market_data_service, "_fetch_company_metadata_from_quote_api", lambda ticker: {})
+
+    try:
+        metadata = market_data_service.fetch_company_metadata("AAPL")
+
+        assert metadata["name"] == "Apple Inc."
+        assert metadata["market_cap"] == 3_000_000_000_000
+        assert metadata["profit_margin"] == 0.24
     finally:
         market_data_service._metadata_cache.clear()
 
@@ -199,6 +291,14 @@ def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
     assert "change_my_mind TEXT DEFAULT '' NOT NULL" in ddl
 
 
+def test_triage_snapshot_columns_have_defaults_for_existing_databases() -> None:
+    ddl = str(CreateTable(models.TriageSnapshot.__table__).compile(dialect=sqlite.dialect()))
+
+    assert "top_news JSON DEFAULT '[]' NOT NULL" in ddl
+    assert "price_change_pct FLOAT DEFAULT 0 NOT NULL" in ddl
+    assert "as_of_date DATE DEFAULT CURRENT_DATE NOT NULL" in ddl
+
+
 def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
     seen: list[str] = []
 
@@ -215,7 +315,7 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
     monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
 
-    response = client.get("/api/triage?tickers=aapl,msft")
+    response = client.post("/api/triage/run?tickers=aapl,msft")
     body = response.json()
 
     assert response.status_code == 200
@@ -243,13 +343,47 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
     monkeypatch.setattr(triage_service, "fetch_ticker_news", fake_news)
 
-    response = client.get("/api/triage?tickers=aapl")
+    response = client.post("/api/triage/run?tickers=aapl")
     item = response.json()["items"][0]
 
     assert response.status_code == 200
     assert item["news"][0]["category"] == "guidance"
     assert any(reason["code"] == "news" for reason in item["reasons"])
     assert item["attention_score"] >= 48
+
+
+def test_get_triage_returns_news_saved_by_run(monkeypatch) -> None:
+    def fake_news(ticker: str) -> list[NewsArticle]:
+        return [
+            NewsArticle(
+                title=f"{ticker} raises revenue guidance",
+                url="https://example.com/news",
+                source="Example",
+                published_at=datetime(2026, 8, 13, 9, 0, tzinfo=UTC),
+                summary="",
+                category="guidance",
+                impact=4,
+            )
+        ]
+
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", fake_news)
+
+    try:
+        run_response = client.post("/api/triage/run?tickers=aapl")
+        read_response = client.get("/api/triage?tickers=aapl")
+        read_item = read_response.json()["items"][0]
+
+        assert run_response.status_code == 200
+        assert read_response.status_code == 200
+        assert read_item["news"][0]["category"] == "guidance"
+        assert read_item["news"][0]["title"] == "AAPL raises revenue guidance"
+        assert read_item["price_change_pct"] == run_response.json()["items"][0]["price_change_pct"]
+        assert read_item["as_of_date"] == run_response.json()["items"][0]["as_of_date"]
+    finally:
+        triage_service._memory_triage_snapshots.clear()
 
 
 def test_triage_includes_watch_notes(monkeypatch) -> None:
@@ -271,7 +405,7 @@ def test_triage_includes_watch_notes(monkeypatch) -> None:
         ],
     )
 
-    response = client.get("/api/triage")
+    response = client.post("/api/triage/run")
     item = response.json()["items"][0]
 
     assert response.status_code == 200
@@ -297,13 +431,70 @@ def test_triage_compares_against_previous_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
 
     try:
-        first = client.get("/api/triage?tickers=msft").json()["items"][0]
-        second = client.get("/api/triage?tickers=msft").json()["items"][0]
+        first = client.post("/api/triage/run?tickers=msft").json()["items"][0]
+        second = client.post("/api/triage/run?tickers=msft").json()["items"][0]
 
         assert first["changes"] is None
         assert second["changes"]["previous_attention_score"] == first["attention_score"]
         assert second["changes"]["score_delta"] == second["attention_score"] - first["attention_score"]
         assert second["changes"]["details"]
+    finally:
+        triage_service._memory_triage_snapshots.clear()
+
+
+def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
+    triage_service._memory_triage_snapshots.clear()
+    triage_service._memory_triage_snapshots["MSFT"] = [
+        {
+            "ticker": "MSFT",
+            "attention_score": 24,
+            "severity": "Low",
+            "top_reasons": [{"code": "volume_surge", "label": "Volume surge", "detail": "Volume increased.", "impact": 2}],
+            "top_news": [
+                {
+                    "title": "MSFT raises cloud guidance",
+                    "url": "https://example.com/msft",
+                    "source": "Example",
+                    "published_at": "2026-08-14T08:30:00Z",
+                    "category": "guidance",
+                    "impact": 4,
+                },
+                {
+                    "title": "Bad legacy timestamp",
+                    "url": "https://example.com/bad",
+                    "source": "Example",
+                    "published_at": "not-a-date",
+                    "category": "guidance",
+                    "impact": 4,
+                },
+            ],
+            "price": 410.0,
+            "price_change_pct": -0.021,
+            "as_of_date": "2026-08-14",
+            "volume": 1200000.0,
+            "rsi": 55.0,
+            "moving_average_status": "above_both",
+            "created_at": datetime(2026, 8, 14, 9, 0),
+        }
+    ]
+
+    def fail_fetch(ticker: str) -> pd.DataFrame:
+        raise AssertionError("GET /api/triage must not fetch live market data")
+
+    monkeypatch.setattr(triage_service, "fetch_price_data", fail_fetch)
+
+    try:
+        response = client.get("/api/triage?tickers=msft")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert datetime.fromisoformat(body["generated_at"].replace("Z", "+00:00")).tzinfo is not None
+        assert body["items"][0]["ticker"] == "MSFT"
+        assert body["items"][0]["attention_score"] == 24
+        assert body["items"][0]["price_change_pct"] == -0.021
+        assert body["items"][0]["as_of_date"] == "2026-08-14"
+        assert [article["title"] for article in body["items"][0]["news"]] == ["MSFT raises cloud guidance"]
+        assert body["items"][0]["reasons"][0]["code"] == "volume_surge"
     finally:
         triage_service._memory_triage_snapshots.clear()
 
