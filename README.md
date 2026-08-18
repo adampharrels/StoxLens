@@ -19,7 +19,7 @@ The app is built as an internal analyst tool, not a marketing site. The frontend
 - Today page that ranks watchlist stocks by attention urgency
 - Saved triage snapshots that compare the latest check against the previous check
 - "What changed since last check" summaries for score, severity, moving-average status, and new trigger reasons
-- Five-year price history fetched from Alpha Vantage when configured
+- Saved daily price history fetched from Alpha Vantage when configured
 - Momentum, trend, volatility, drawdown, RSI, and volume-trend signals
 - News-aware triage using Alpha Vantage news sentiment plus deterministic relevance rules
 - Optional structured research brief generation
@@ -124,7 +124,7 @@ Optional database URL:
 export DATABASE_URL=postgresql://stoxlens:stoxlens@localhost:5432/stoxlens
 ```
 
-If `DATABASE_URL` is not set, the backend uses in-memory report storage for local development. That means generated reports reset when the backend restarts.
+If `DATABASE_URL` is not set, the backend uses in-memory storage for local development. That means saved research checks, generated reports, and chart candles reset when the backend restarts.
 
 ## Ticker Format
 
@@ -185,7 +185,9 @@ If metadata is unavailable, StoxLens still uses the ticker as the display name. 
 
 ```text
 GET  /health
+GET  /api/chart/{ticker}
 GET  /api/research/{ticker}
+POST /api/research/{ticker}/run
 POST /api/research/{ticker}/generate
 GET  /api/reports
 GET  /api/watchlist
@@ -196,6 +198,17 @@ GET  /api/compare
 GET  /api/triage
 POST /api/triage/run
 GET  /api/news/{ticker}
+```
+
+## Research Snapshot Workflow
+
+```text
+1. Open /research/{ticker}
+2. Frontend reads the latest saved research snapshot
+3. If no snapshot exists, the page shows "No full check has been run yet"
+4. Click Run Check to fetch historical data and recalculate signals
+5. Backend saves daily candles, company metadata, and a signal snapshot
+6. Later page loads read the saved snapshot without calling market-data providers
 ```
 
 ## Watchlist Triage Workflow
