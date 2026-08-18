@@ -19,6 +19,7 @@ def init_db() -> None:
     if engine:
         try:
             Base.metadata.create_all(bind=engine)
+            _ensure_company_metadata_columns()
             _ensure_watchlist_note_columns()
             _ensure_triage_snapshot_columns()
         except SQLAlchemyError as exc:
@@ -41,6 +42,32 @@ def _ensure_watchlist_note_columns() -> None:
         "watch_reason": "ALTER TABLE watchlist_items ADD COLUMN watch_reason TEXT NOT NULL DEFAULT ''",
         "main_risk": "ALTER TABLE watchlist_items ADD COLUMN main_risk TEXT NOT NULL DEFAULT ''",
         "change_my_mind": "ALTER TABLE watchlist_items ADD COLUMN change_my_mind TEXT NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as connection:
+        for column, statement in statements.items():
+            if column not in existing:
+                connection.execute(text(statement))
+
+
+def _ensure_company_metadata_columns() -> None:
+    if engine is None:
+        return
+
+    inspector = inspect(engine)
+    if "companies" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("companies")}
+    statements = {
+        "currency": "ALTER TABLE companies ADD COLUMN currency VARCHAR(12) NOT NULL DEFAULT ''",
+        "market_cap": "ALTER TABLE companies ADD COLUMN market_cap BIGINT",
+        "pe_ratio": "ALTER TABLE companies ADD COLUMN pe_ratio FLOAT",
+        "eps": "ALTER TABLE companies ADD COLUMN eps FLOAT",
+        "revenue_ttm": "ALTER TABLE companies ADD COLUMN revenue_ttm BIGINT",
+        "revenue_growth_yoy": "ALTER TABLE companies ADD COLUMN revenue_growth_yoy FLOAT",
+        "profit_margin": "ALTER TABLE companies ADD COLUMN profit_margin FLOAT",
+        "debt_to_equity": "ALTER TABLE companies ADD COLUMN debt_to_equity FLOAT",
+        "dividend_yield": "ALTER TABLE companies ADD COLUMN dividend_yield FLOAT",
     }
     with engine.begin() as connection:
         for column, statement in statements.items():

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, text
+from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -22,6 +22,15 @@ class Company(Base):
     exchange: Mapped[str] = mapped_column(String(40), default="")
     sector: Mapped[str] = mapped_column(String(80), default="")
     industry: Mapped[str] = mapped_column(String(120), default="")
+    currency: Mapped[str] = mapped_column(String(12), default="", server_default=text("''"), nullable=False)
+    market_cap: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    pe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    revenue_ttm: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    revenue_growth_yoy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    profit_margin: Mapped[float | None] = mapped_column(Float, nullable=True)
+    debt_to_equity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dividend_yield: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

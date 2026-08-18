@@ -10,8 +10,10 @@ def test_expected_api_routes_are_registered() -> None:
     paths = set(app.openapi()["paths"])
 
     assert "/health" in paths
+    assert "/api/chart/{ticker}" in paths
     assert "/api/research/{ticker}" in paths
     assert "/api/research/{ticker}/generate" in paths
+    assert "/api/research/{ticker}/run" in paths
     assert "/api/compare" in paths
     assert "/api/reports" in paths
     assert "/api/watchlist" in paths

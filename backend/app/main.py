@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-from app.api.routes import compare, news, reports, research, triage, watchlist
+from app.api.routes import chart, compare, news, reports, research, triage, watchlist
 from app.db.session import init_db
 
 app = FastAPI(title="StoxLens", version="0.1.0")
@@ -45,6 +45,7 @@ def health() -> dict[str, str]:
 
 
 app.include_router(research.router, prefix="/api/research", tags=["research"])
+app.include_router(chart.router, prefix="/api/chart", tags=["chart"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"])
 app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
