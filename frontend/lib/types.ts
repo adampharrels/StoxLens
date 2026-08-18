@@ -73,6 +73,14 @@ export interface ResearchResponse {
   price_history: PricePoint[];
 }
 
+export interface NoSnapshotResponse {
+  ticker: string;
+  status: "no_snapshot";
+  message: string;
+}
+
+export type ResearchResult = ResearchResponse | NoSnapshotResponse;
+
 export interface ReportListItem {
   id: string;
   ticker: string;

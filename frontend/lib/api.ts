@@ -1,4 +1,12 @@
-import type { ReportListItem, ResearchResponse, SignalSnapshot, TriageResponse, WatchlistItem } from "@/lib/types";
+import type {
+  PricePoint,
+  ReportListItem,
+  ResearchResponse,
+  ResearchResult,
+  SignalSnapshot,
+  TriageResponse,
+  WatchlistItem
+} from "@/lib/types";
 
 export interface WatchlistPayload {
   ticker: string;
@@ -67,7 +75,14 @@ async function deleteJson(path: string): Promise<void> {
   }
 }
 
-export const getResearch = (ticker: string) => getJson<ResearchResponse>(`/api/research/${encodeURIComponent(ticker)}`);
+export const getResearch = (ticker: string) => getJson<ResearchResult>(`/api/research/${encodeURIComponent(ticker)}`);
+
+export const runResearch = (ticker: string) => postJson<ResearchResponse>(`/api/research/${encodeURIComponent(ticker)}/run`);
+
+export const getChart = (ticker: string, range = "1y", interval = "1d") => {
+  const query = new URLSearchParams({ range, interval });
+  return getJson<PricePoint[]>(`/api/chart/${encodeURIComponent(ticker)}?${query.toString()}`);
+};
 
 export const generateResearch = (ticker: string) =>
   postJson<ResearchResponse>(`/api/research/${encodeURIComponent(ticker)}/generate`);
