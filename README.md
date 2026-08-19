@@ -20,6 +20,7 @@ The app is built as an internal analyst tool, not a marketing site. The frontend
 - Saved triage snapshots that compare the latest check against the previous check
 - "What changed since last check" summaries for score, severity, moving-average status, and new trigger reasons
 - Saved daily price history fetched from Alpha Vantage when configured
+- Live minute candlestick chart through an Alpaca WebSocket backend proxy
 - Momentum, trend, volatility, drawdown, RSI, and volume-trend signals
 - News-aware triage using Alpha Vantage news sentiment plus deterministic relevance rules
 - Optional structured research brief generation
@@ -118,6 +119,16 @@ export ALPHAVANTAGE_OUTPUTSIZE=full
 
 The API never returns fake prices. If the configured provider cannot return enough price history, StoxLens returns the provider/validation message.
 
+Optional live candle streaming:
+
+```bash
+export ALPACA_API_KEY_ID=your_key_id_here
+export ALPACA_API_SECRET_KEY=your_secret_here
+export ALPACA_DATA_FEED=iex
+```
+
+The frontend connects to the StoxLens backend at `/ws/candles`; the backend authenticates with Alpaca and forwards live minute bars. Free Alpaca market data uses the IEX feed, so the live candle panel labels the source separately from historical daily prices.
+
 Optional database URL:
 
 ```bash
@@ -198,6 +209,7 @@ GET  /api/compare
 GET  /api/triage
 POST /api/triage/run
 GET  /api/news/{ticker}
+WS   /ws/candles?ticker={ticker}
 ```
 
 ## Research Snapshot Workflow
