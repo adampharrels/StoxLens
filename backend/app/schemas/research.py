@@ -80,3 +80,9 @@ class ResearchResponse(BaseModel):
     signals: SignalSnapshotOut
     latest_report: ResearchReportOut | None
     price_history: list[PricePoint]
+
+
+class NoSnapshotResponse(BaseModel):
+    ticker: str
+    status: Literal["no_snapshot"]
+    message: str

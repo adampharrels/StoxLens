@@ -65,7 +65,7 @@ def test_research_maps_missing_ticker_to_404(monkeypatch) -> None:
 
     monkeypatch.setattr(research_service, "fetch_price_data", fake_fetch)
 
-    response = client.get("/api/research/MISSING")
+    response = client.post("/api/research/MISSING/run")
 
     assert response.status_code == 404
     assert "MISSING" in response.json()["detail"]
@@ -82,7 +82,7 @@ def test_research_does_not_expose_provider_api_key_messages(monkeypatch) -> None
 
     monkeypatch.setattr(research_service, "fetch_price_data", fake_fetch)
 
-    response = client.get("/api/research/AAPL")
+    response = client.post("/api/research/AAPL/run")
 
     assert response.status_code == 429
     assert response.json()["detail"] == "Market data provider rate limit reached. Try again later."
@@ -197,6 +197,97 @@ def test_metadata_keeps_last_success_when_refresh_is_empty(monkeypatch) -> None:
         market_data_service._metadata_cache.clear()
 
 
+def test_get_research_returns_no_snapshot_without_fetching(monkeypatch) -> None:
+    research_service._memory_research_snapshots.clear()
+
+    def fail_fetch(ticker: str) -> pd.DataFrame:
+        raise AssertionError("GET /api/research must not fetch provider data")
+
+    monkeypatch.setattr(research_service, "fetch_price_data", fail_fetch)
+
+    response = client.get("/api/research/AAPL")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ticker": "AAPL",
+        "status": "no_snapshot",
+        "message": "No full check has been run yet.",
+    }
+
+
+def test_research_run_saves_snapshot_for_get(monkeypatch) -> None:
+    research_service._memory_research_snapshots.clear()
+    monkeypatch.setattr(research_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(research_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(
+        research_service,
+        "fetch_company_metadata",
+        lambda ticker: {
+            "name": "Apple Inc.",
+            "exchange": "NASDAQ",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "currency": "USD",
+            "market_cap": 3_000_000_000_000,
+            "pe_ratio": 31.5,
+            "eps": 6.4,
+            "revenue_ttm": None,
+            "revenue_growth_yoy": None,
+            "profit_margin": None,
+            "debt_to_equity": None,
+            "dividend_yield": None,
+        },
+    )
+
+    try:
+        run_response = client.post("/api/research/AAPL/run")
+        run_body = run_response.json()
+
+        def fail_fetch(ticker: str) -> pd.DataFrame:
+            raise AssertionError("GET /api/research must read the saved snapshot")
+
+        monkeypatch.setattr(research_service, "fetch_price_data", fail_fetch)
+        read_response = client.get("/api/research/AAPL")
+        read_body = read_response.json()
+
+        assert run_response.status_code == 200
+        assert read_response.status_code == 200
+        assert read_body["ticker"] == "AAPL"
+        assert read_body["company_name"] == "Apple Inc."
+        assert read_body["price"] == run_body["price"]
+        assert read_body["fundamentals"]["market_cap"] == 3_000_000_000_000
+        assert read_body["fundamentals"]["pe_ratio"] == 31.5
+        assert read_body["signals"]["rsi"] == run_body["signals"]["rsi"]
+        assert len(read_body["price_history"]) == 252
+        assert read_body["data_source"] == "saved"
+    finally:
+        research_service._memory_research_snapshots.clear()
+
+
+def test_chart_reads_saved_daily_bars_without_fetching(monkeypatch) -> None:
+    research_service._memory_research_snapshots.clear()
+    monkeypatch.setattr(research_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(research_service, "clean_price_data", lambda df: df)
+    monkeypatch.setattr(research_service, "fetch_company_metadata", lambda ticker: research_service._empty_metadata(ticker))
+
+    try:
+        run_response = client.post("/api/research/AAPL/run")
+
+        def fail_fetch(ticker: str) -> pd.DataFrame:
+            raise AssertionError("GET /api/chart must read saved candles")
+
+        monkeypatch.setattr(research_service, "fetch_price_data", fail_fetch)
+        chart_response = client.get("/api/chart/AAPL?range=6m&interval=1d")
+        chart = chart_response.json()
+
+        assert run_response.status_code == 200
+        assert chart_response.status_code == 200
+        assert len(chart) == 126
+        assert chart[-1]["close"] == run_response.json()["price"]
+    finally:
+        research_service._memory_research_snapshots.clear()
+
+
 def test_generate_research_is_rate_limited(monkeypatch) -> None:
     clear_rate_limits()
     monkeypatch.setenv("RESEARCH_GENERATE_LIMIT", "1")
@@ -289,6 +380,15 @@ def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
     assert "watch_reason TEXT DEFAULT '' NOT NULL" in ddl
     assert "main_risk TEXT DEFAULT '' NOT NULL" in ddl
     assert "change_my_mind TEXT DEFAULT '' NOT NULL" in ddl
+
+
+def test_company_metadata_columns_have_valid_defaults() -> None:
+    ddl = str(CreateTable(models.Company.__table__).compile(dialect=sqlite.dialect()))
+
+    assert "currency VARCHAR(12) DEFAULT '' NOT NULL" in ddl
+    assert "market_cap BIGINT" in ddl
+    assert "pe_ratio FLOAT" in ddl
+    assert "dividend_yield FLOAT" in ddl
 
 
 def test_triage_snapshot_columns_have_defaults_for_existing_databases() -> None:
