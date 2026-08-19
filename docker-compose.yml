@@ -15,6 +15,9 @@ services:
       DATABASE_URL: postgresql://stoxlens:stoxlens@db/stoxlens
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY}
+      ALPACA_API_KEY_ID: ${ALPACA_API_KEY_ID}
+      ALPACA_API_SECRET_KEY: ${ALPACA_API_SECRET_KEY}
+      ALPACA_DATA_FEED: ${ALPACA_DATA_FEED:-iex}
     depends_on: [db]
 
   frontend:

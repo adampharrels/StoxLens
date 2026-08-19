@@ -1,9 +1,10 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas.triage import NewsArticleOut
-from app.services.news import fetch_ticker_news
+from app.services.market_data import RateLimitError
+from app.services.news import NewsUnavailableError, fetch_ticker_news
 
 router = APIRouter()
 
@@ -14,7 +15,12 @@ def get_ticker_news(
     limit: int = Query(default=5, ge=1, le=20),
     lookback_hours: int = Query(default=168, ge=1, le=168),
 ) -> list[NewsArticleOut]:
-    articles = fetch_ticker_news(ticker, limit=limit, lookback=timedelta(hours=lookback_hours))
+    try:
+        articles = fetch_ticker_news(ticker, limit=limit, lookback=timedelta(hours=lookback_hours), raise_on_error=True)
+    except RateLimitError as exc:
+        raise HTTPException(status_code=429, detail="News provider rate limit reached. Try again later.") from exc
+    except NewsUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return [
         NewsArticleOut(
             title=article.title,

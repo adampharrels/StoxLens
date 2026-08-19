@@ -20,6 +20,12 @@ const SERVER_API_URL = process.env.SERVER_API_URL ?? BROWSER_API_URL;
 
 const apiUrl = () => (typeof window === "undefined" ? SERVER_API_URL : BROWSER_API_URL);
 
+const wsUrl = (path: string) => {
+  const url = new URL(path, BROWSER_API_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+};
+
 export class ApiError extends Error {
   status: number;
 
@@ -78,6 +84,8 @@ async function deleteJson(path: string): Promise<void> {
 export const getResearch = (ticker: string) => getJson<ResearchResult>(`/api/research/${encodeURIComponent(ticker)}`);
 
 export const runResearch = (ticker: string) => postJson<ResearchResponse>(`/api/research/${encodeURIComponent(ticker)}/run`);
+
+export const getLiveCandleStreamUrl = (ticker: string) => wsUrl(`/ws/candles?ticker=${encodeURIComponent(ticker)}`);
 
 export const getChart = (ticker: string, range = "1y", interval = "1d") => {
   const query = new URLSearchParams({ range, interval });

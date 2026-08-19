@@ -42,6 +42,34 @@ export interface PricePoint {
   adj_close?: number;
 }
 
+export interface LiveCandle {
+  type: "bar";
+  ticker: string;
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  trade_count: number;
+  vwap: number;
+  source: string;
+}
+
+export interface LiveStreamStatus {
+  type: "status";
+  ticker?: string;
+  message: string;
+}
+
+export interface LiveStreamError {
+  type: "error";
+  ticker?: string;
+  message: string;
+  code?: number | string;
+  source?: string;
+}
+
 export interface Fundamentals {
   market_cap: number | null;
   pe_ratio: number | null;

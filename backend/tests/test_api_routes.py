@@ -4,11 +4,14 @@ import pandas as pd
 from fastapi.testclient import TestClient
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.schema import CreateTable
+from starlette.websockets import WebSocketDisconnect
 
 from app.api.routes import compare as compare_route
+from app.api.routes import candles as candles_route
 from app.db import models
 from app.main import app
 from app.services import market_data as market_data_service
+from app.services.alpaca_stream import alpaca_stream_url, parse_alpaca_bar, public_alpaca_stream_error
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
@@ -286,6 +289,76 @@ def test_chart_reads_saved_daily_bars_without_fetching(monkeypatch) -> None:
         assert chart[-1]["close"] == run_response.json()["price"]
     finally:
         research_service._memory_research_snapshots.clear()
+
+
+def test_parse_alpaca_bar_normalises_live_candle() -> None:
+    bar = parse_alpaca_bar(
+        {
+            "T": "b",
+            "S": "aapl",
+            "o": 200.1,
+            "h": 201.5,
+            "l": 199.8,
+            "c": 201.0,
+            "v": 12345,
+            "n": 42,
+            "vw": 200.7,
+            "t": "2026-08-19T01:23:00Z",
+        }
+    )
+
+    assert bar == {
+        "type": "bar",
+        "ticker": "AAPL",
+        "timestamp": "2026-08-19T01:23:00Z",
+        "open": 200.1,
+        "high": 201.5,
+        "low": 199.8,
+        "close": 201.0,
+        "volume": 12345,
+        "trade_count": 42,
+        "vwap": 200.7,
+        "source": "alpaca_iex",
+    }
+
+
+def test_alpaca_stream_url_uses_stock_iex_feed_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("ALPACA_STREAM_URL", raising=False)
+    monkeypatch.delenv("ALPACA_DATA_FEED", raising=False)
+
+    assert alpaca_stream_url() == "wss://stream.data.alpaca.markets/v2/iex"
+
+
+def test_live_candle_websocket_requires_ticker() -> None:
+    with client.websocket_connect("/ws/candles") as websocket:
+        assert websocket.receive_json() == {"type": "error", "message": "Valid ticker query parameter is required"}
+
+
+def test_live_candle_websocket_rejects_invalid_ticker() -> None:
+    with client.websocket_connect("/ws/candles?ticker=AAPL<script>") as websocket:
+        assert websocket.receive_json() == {"type": "error", "message": "Valid ticker query parameter is required"}
+
+
+def test_live_candle_websocket_rejects_untrusted_origin() -> None:
+    try:
+        with client.websocket_connect("/ws/candles?ticker=AAPL", headers={"origin": "https://evil.example"}):
+            raise AssertionError("untrusted origin should close before accepting")
+    except WebSocketDisconnect as exc:
+        assert exc.code == 1008
+
+
+def test_live_candle_websocket_limits_client_connections(monkeypatch) -> None:
+    monkeypatch.setenv("LIVE_CANDLE_CONNECTION_LIMIT", "0")
+    candles_route._active_streams_by_client.clear()
+
+    with client.websocket_connect("/ws/candles?ticker=AAPL") as websocket:
+        assert websocket.receive_json()["message"] == "Live candle connection limit reached. Close another live chart tab and retry."
+
+
+def test_public_alpaca_stream_error_hides_provider_message() -> None:
+    assert public_alpaca_stream_error(406) == "Live data connection limit reached. Close other live chart tabs and retry."
+    assert public_alpaca_stream_error(401) == "Live data provider authentication or subscription failed."
+    assert public_alpaca_stream_error("unknown") == "Live data provider is unavailable. Try again later."
 
 
 def test_generate_research_is_rate_limited(monkeypatch) -> None:
@@ -620,7 +693,7 @@ def test_news_filter_requires_ticker_relevance() -> None:
 
 
 def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
-    def fake_news(ticker: str, *, limit: int = 5, lookback=None) -> list[NewsArticle]:
+    def fake_news(ticker: str, *, limit: int = 5, lookback=None, raise_on_error: bool = False) -> list[NewsArticle]:
         return [
             NewsArticle(
                 title=f"{ticker} receives analyst upgrade",
@@ -640,6 +713,58 @@ def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()[0]["category"] == "analyst"
     assert response.json()[0]["impact"] == 2
+
+
+def test_news_endpoint_reports_missing_provider_key(monkeypatch) -> None:
+    monkeypatch.delenv("ALPHAVANTAGE_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    news_service._news_cache.clear()
+
+    try:
+        response = client.get("/api/news/aapl")
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Set ALPHAVANTAGE_API_KEY to enable ticker news."
+    finally:
+        news_service._news_cache.clear()
+
+
+def test_news_endpoint_reports_provider_rate_limit(monkeypatch) -> None:
+    news_service._news_cache.clear()
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
+
+    def rate_limited(ticker: str, *, lookback) -> list[NewsArticle]:
+        raise RateLimitError("free api requests reached")
+
+    monkeypatch.setattr(news_service, "_fetch_alphavantage_news", rate_limited)
+
+    try:
+        response = client.get("/api/news/aapl")
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == "News provider rate limit reached. Try again later."
+    finally:
+        news_service._news_cache.clear()
+
+
+def test_news_endpoint_does_not_expose_provider_api_key_messages(monkeypatch) -> None:
+    news_service._news_cache.clear()
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "SECRET_TOKEN")
+
+    def provider_failed(ticker: str, *, lookback) -> list[NewsArticle]:
+        raise MarketDataError("We have detected your API key as SECRET_TOKEN for this account.")
+
+    monkeypatch.setattr(news_service, "_fetch_alphavantage_news", provider_failed)
+
+    try:
+        response = client.get("/api/news/aapl")
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "News provider is unavailable. Try again later."
+        assert "SECRET_TOKEN" not in response.text
+        assert "API key" not in response.text
+    finally:
+        news_service._news_cache.clear()
 
 
 def test_news_cache_prunes_expired_lookback_entries(monkeypatch) -> None:

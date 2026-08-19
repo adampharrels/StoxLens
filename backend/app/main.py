@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-from app.api.routes import chart, compare, news, reports, research, triage, watchlist
+from app.api.routes import candles, chart, compare, news, reports, research, triage, watchlist
 from app.db.session import init_db
 
 app = FastAPI(title="StoxLens", version="0.1.0")
@@ -51,3 +51,4 @@ app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"]
 app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
 app.include_router(triage.router, prefix="/api/triage", tags=["triage"])
 app.include_router(news.router, prefix="/api/news", tags=["news"])
+app.include_router(candles.router, prefix="/ws", tags=["candles"])

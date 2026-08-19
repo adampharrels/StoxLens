@@ -20,6 +20,14 @@ class NewsArticle:
     impact: int
 
 
+class NewsUnavailableError(RuntimeError):
+    pass
+
+
+class NewsProviderConfigError(MarketDataError):
+    pass
+
+
 KEYWORD_RULES: list[tuple[str, int, tuple[str, ...]]] = [
     ("earnings", 4, ("earnings", "results", "quarterly", "profit", "revenue", "eps")),
     ("guidance", 4, ("guidance", "forecast", "outlook", "warns", "warning", "cuts forecast", "raises forecast")),
@@ -32,7 +40,13 @@ KEYWORD_RULES: list[tuple[str, int, tuple[str, ...]]] = [
 ]
 
 
-def fetch_ticker_news(ticker: str, *, limit: int = 5, lookback: timedelta = NEWS_LOOKBACK) -> list[NewsArticle]:
+def fetch_ticker_news(
+    ticker: str,
+    *,
+    limit: int = 5,
+    lookback: timedelta = NEWS_LOOKBACK,
+    raise_on_error: bool = False,
+) -> list[NewsArticle]:
     key = ticker.upper()
     cache_key = f"{key}:{int(lookback.total_seconds())}"
     now = datetime.now(UTC)
@@ -44,7 +58,17 @@ def fetch_ticker_news(ticker: str, *, limit: int = 5, lookback: timedelta = NEWS
 
     try:
         articles = _fetch_alphavantage_news(key, lookback=lookback)
-    except (MarketDataError, RateLimitError):
+    except RateLimitError:
+        # Triage should still work without news, but the direct news endpoint can opt into visible errors.
+        if raise_on_error:
+            raise
+        articles = []
+    except MarketDataError as exc:
+        # Keep Today resilient; callers that need diagnostics pass raise_on_error=True.
+        if raise_on_error:
+            if isinstance(exc, NewsProviderConfigError):
+                raise NewsUnavailableError(str(exc)) from exc
+            raise NewsUnavailableError("News provider is unavailable. Try again later.") from exc
         articles = []
 
     _news_cache[cache_key] = (now, articles)
@@ -60,6 +84,7 @@ def _prune_expired_cache(now: datetime) -> None:
 def classify_news(title: str, summary: str = "") -> tuple[str, int]:
     text = _normalise_news_text(f"{title} {summary}")
     for category, impact, keywords in KEYWORD_RULES:
+        # Whole-token matching avoids false positives like "sec" inside "seconds".
         if any(_normalise_news_text(keyword) in text for keyword in keywords):
             return category, impact
     return "general", 0
@@ -73,7 +98,7 @@ def _normalise_news_text(value: str) -> str:
 def _fetch_alphavantage_news(ticker: str, *, lookback: timedelta) -> list[NewsArticle]:
     api_key = os.getenv("ALPHAVANTAGE_API_KEY") or os.getenv("ALPHA_VANTAGE_API_KEY")
     if not api_key:
-        return []
+        raise NewsProviderConfigError("Set ALPHAVANTAGE_API_KEY to enable ticker news.")
 
     try:
         import requests
