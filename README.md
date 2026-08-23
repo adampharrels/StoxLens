@@ -12,6 +12,8 @@ The app is built as an internal analyst tool, not a marketing site. The frontend
 
 ![Watchlist notes form](frontend/public/screenshots/watchlist-notes.png)
 
+![Research candle chart](frontend/public/screenshots/research-candles.png)
+
 ## Features
 
 - CRUD watchlist for saved tickers
