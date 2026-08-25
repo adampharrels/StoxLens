@@ -25,6 +25,17 @@ from app.services.reports import latest_report, report_to_schema, save_report
 from app.services.signals import calculate_signals
 
 _memory_research_snapshots: dict[str, dict[str, Any]] = {}
+_FUNDAMENTAL_FIELDS = (
+    "market_cap",
+    "pe_ratio",
+    "eps",
+    "revenue_ttm",
+    "revenue_growth_yoy",
+    "profit_margin",
+    "debt_to_equity",
+    "dividend_yield",
+)
+_COMPANY_CONTEXT_FIELDS = ("exchange", "industry", "currency")
 
 
 def load_clean_prices(ticker: str):
@@ -79,6 +90,24 @@ def _empty_metadata(ticker: str) -> dict[str, Any]:
         "debt_to_equity": None,
         "dividend_yield": None,
     }
+
+
+def _has_useful_metadata(meta: dict[str, Any]) -> bool:
+    has_fundamentals = any(meta.get(field) is not None for field in _FUNDAMENTAL_FIELDS)
+    has_context = any(bool(meta.get(field)) for field in _COMPANY_CONTEXT_FIELDS)
+    return has_fundamentals or has_context
+
+
+def _merge_saved_metadata(saved: dict[str, Any], fresh: dict[str, Any]) -> dict[str, Any]:
+    merged = fresh.copy()
+    for field in (*_COMPANY_CONTEXT_FIELDS, *_FUNDAMENTAL_FIELDS):
+        if merged.get(field) in (None, "") and saved.get(field) not in (None, ""):
+            merged[field] = saved[field]
+    if merged.get("sector") in (None, "", "Equity") and saved.get("sector") not in (None, "", "Equity"):
+        merged["sector"] = saved["sector"]
+    if saved.get("name") and not _has_useful_metadata(fresh):
+        merged["name"] = saved["name"]
+    return merged
 
 
 def _build_response(
@@ -313,6 +342,9 @@ def run_research_check(ticker: str, db: Session | None) -> ResearchResponse:
     meta = fetch_company_metadata(ticker)
     fetched_at = datetime.now(UTC)
     if db is None:
+        cached = _memory_research_snapshots.get(ticker.upper())
+        if cached and not _has_useful_metadata(meta):
+            meta = cached["meta"].copy()
         _memory_research_snapshots[ticker.upper()] = {
             "df": df.copy(),
             "signals": signals.copy(),
@@ -320,6 +352,9 @@ def run_research_check(ticker: str, db: Session | None) -> ResearchResponse:
             "fetched_at": fetched_at,
         }
     else:
+        saved_meta = _company_metadata(db, ticker)
+        if _has_useful_metadata(saved_meta):
+            meta = _merge_saved_metadata(saved_meta, meta)
         _save_company(db, ticker, meta)
         _save_price_history(db, ticker, df)
         _save_signal_snapshot(db, ticker, signals)
@@ -344,6 +379,9 @@ def generate_research_snapshot(ticker: str, db: Session | None) -> ResearchRespo
     )
     meta = fetch_company_metadata(ticker)
     if db is None:
+        cached = _memory_research_snapshots.get(ticker.upper())
+        if cached and not _has_useful_metadata(meta):
+            meta = cached["meta"].copy()
         _memory_research_snapshots[ticker.upper()] = {
             "df": df.copy(),
             "signals": signals.copy(),
@@ -351,6 +389,9 @@ def generate_research_snapshot(ticker: str, db: Session | None) -> ResearchRespo
             "fetched_at": datetime.now(UTC),
         }
     else:
+        saved_meta = _company_metadata(db, ticker)
+        if _has_useful_metadata(saved_meta):
+            meta = _merge_saved_metadata(saved_meta, meta)
         _save_company(db, ticker, meta)
         _save_price_history(db, ticker, df)
         db.commit()

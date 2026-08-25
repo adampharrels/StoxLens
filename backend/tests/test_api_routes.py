@@ -267,6 +267,32 @@ def test_research_run_saves_snapshot_for_get(monkeypatch) -> None:
         research_service._memory_research_snapshots.clear()
 
 
+def test_research_metadata_merge_preserves_saved_fundamentals_after_provider_miss() -> None:
+    saved_metadata = {
+        "name": "Apple Inc.",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "currency": "USD",
+        "market_cap": 3_000_000_000_000,
+        "pe_ratio": 31.5,
+        "eps": 6.4,
+        "revenue_ttm": 390_000_000_000,
+        "revenue_growth_yoy": 0.08,
+        "profit_margin": 0.25,
+        "debt_to_equity": None,
+        "dividend_yield": 0.004,
+    }
+
+    merged = research_service._merge_saved_metadata(saved_metadata, research_service._empty_metadata("AAPL"))
+
+    assert merged["name"] == "Apple Inc."
+    assert merged["sector"] == "Technology"
+    assert merged["industry"] == "Consumer Electronics"
+    assert merged["market_cap"] == 3_000_000_000_000
+    assert merged["revenue_ttm"] == 390_000_000_000
+
+
 def test_chart_reads_saved_daily_bars_without_fetching(monkeypatch) -> None:
     research_service._memory_research_snapshots.clear()
     monkeypatch.setattr(research_service, "fetch_price_data", lambda ticker: _prices())
