@@ -30,13 +30,23 @@ function errorLabel(message: LiveStreamError) {
 
 export function LiveCandleChart({ ticker }: { ticker: string }) {
   const [candles, setCandles] = useState<LiveCandle[]>([]);
-  const [status, setStatus] = useState("Connecting to Alpaca live candles.");
+  const [status, setStatus] = useState("Live stream idle. Start when you need live minute bars.");
   const [error, setError] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   useEffect(() => {
     setCandles([]);
     setError(null);
+    setIsStreaming(false);
+    setStatus("Live stream idle. Start when you need live minute bars.");
+  }, [ticker]);
+
+  useEffect(() => {
+    if (!isStreaming) return;
+
+    setError(null);
     setStatus("Connecting to Alpaca live candles.");
+    let closedByComponent = false;
 
     // The browser connects to our backend proxy so Alpaca keys never enter the client bundle.
     const socket = new WebSocket(getLiveCandleStreamUrl(ticker));
@@ -57,15 +67,26 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
       }
       if (message.type === "error") {
         setError(errorLabel(message));
+        setIsStreaming(false);
         return;
       }
       setStatus(message.message);
     };
-    socket.onerror = () => setError("Live candle stream failed.");
-    socket.onclose = () => setStatus((current) => (error ? current : "Live candle stream closed."));
+    socket.onerror = () => {
+      setError("Live candle stream failed.");
+      setIsStreaming(false);
+    };
+    socket.onclose = () => {
+      if (!closedByComponent) {
+        setStatus("Live candle stream closed.");
+      }
+    };
 
-    return () => socket.close();
-  }, [ticker]);
+    return () => {
+      closedByComponent = true;
+      socket.close();
+    };
+  }, [ticker, isStreaming]);
 
   const chart = useMemo(() => {
     const width = 960;
@@ -97,18 +118,49 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-primary">Live Alpaca Candles</div>
-          <div className="text-xs text-muted">Minute bars from Alpaca IEX. Historical line chart stays separate below.</div>
+          <div className="text-xs text-muted">Start the stream only when you need live Alpaca minute bars.</div>
         </div>
-        <div className={`text-xs ${error ? "text-red-600" : "text-muted"}`}>{error ?? status}</div>
+        <div className="flex items-center gap-3">
+          <div className={`text-xs ${error ? "text-red-600" : "text-muted"}`}>{error ?? status}</div>
+          {isStreaming ? (
+            <button
+              className="h-8 border border-border px-3 text-sm text-primary hover:border-accent"
+              onClick={() => {
+                setIsStreaming(false);
+                setStatus("Live stream stopped. Last received candles remain visible.");
+              }}
+              type="button"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              className="h-8 border border-border px-3 text-sm text-primary hover:border-accent"
+              onClick={() => {
+                setCandles([]);
+                setError(null);
+                setIsStreaming(true);
+              }}
+              type="button"
+            >
+              Start live stream
+            </button>
+          )}
+        </div>
       </div>
 
       {candles.length === 0 ? (
         <div className="flex h-[220px] flex-col items-center justify-center border border-border px-4 text-center">
           <div className={`text-sm ${error ? "text-red-600" : "text-muted"}`}>{error ?? status}</div>
-          {!error && (
+          {!error && isStreaming && (
             <div className="mt-2 max-w-[420px] text-xs leading-5 text-muted">
               Alpaca sends live candles as minute bars. If the US market is closed, or no new minute bar has arrived yet,
               this panel can stay empty while the WebSocket remains connected.
+            </div>
+          )}
+          {!error && !isStreaming && (
+            <div className="mt-2 max-w-[420px] text-xs leading-5 text-muted">
+              Saved research stays loaded without opening an Alpaca connection.
             </div>
           )}
         </div>
