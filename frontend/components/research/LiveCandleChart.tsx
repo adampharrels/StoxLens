@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getLiveCandleStreamUrl } from "@/lib/api";
 import type { LiveCandle, LiveStreamError, LiveStreamStatus } from "@/lib/types";
 
@@ -30,23 +30,45 @@ function errorLabel(message: LiveStreamError) {
 
 export function LiveCandleChart({ ticker }: { ticker: string }) {
   const [candles, setCandles] = useState<LiveCandle[]>([]);
-  const [status, setStatus] = useState("Connecting to Alpaca live candles.");
+  const [status, setStatus] = useState("Live stream idle. Start when you need live minute bars.");
   const [error, setError] = useState<string | null>(null);
+  const [streamingTicker, setStreamingTicker] = useState<string | null>(null);
+  const connectionGenerationRef = useRef(0);
+  const isStreaming = streamingTicker === ticker;
 
   useEffect(() => {
+    connectionGenerationRef.current += 1;
     setCandles([]);
     setError(null);
+    setStreamingTicker(null);
+    setStatus("Live stream idle. Start when you need live minute bars.");
+  }, [ticker]);
+
+  useEffect(() => {
+    if (streamingTicker !== ticker) return;
+
+    setError(null);
     setStatus("Connecting to Alpaca live candles.");
+    let closedByComponent = false;
+    const activeTicker = streamingTicker;
+    const connectionGeneration = connectionGenerationRef.current + 1;
+    connectionGenerationRef.current = connectionGeneration;
+    const isCurrentConnection = () => !closedByComponent && connectionGenerationRef.current === connectionGeneration;
 
     // The browser connects to our backend proxy so Alpaca keys never enter the client bundle.
-    const socket = new WebSocket(getLiveCandleStreamUrl(ticker));
+    const socket = new WebSocket(getLiveCandleStreamUrl(activeTicker));
 
-    socket.onopen = () => setStatus("Connected to backend. Waiting for Alpaca.");
+    socket.onopen = () => {
+      if (!isCurrentConnection()) return;
+      setStatus("Connected to backend. Waiting for Alpaca.");
+    };
     socket.onmessage = (event) => {
+      if (!isCurrentConnection()) return;
       let message: StreamMessage;
       try {
         message = JSON.parse(event.data) as StreamMessage;
       } catch {
+        if (!isCurrentConnection()) return;
         setError("Live candle stream sent an invalid message.");
         return;
       }
@@ -57,15 +79,27 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
       }
       if (message.type === "error") {
         setError(errorLabel(message));
+        setStreamingTicker((current) => (current === activeTicker ? null : current));
         return;
       }
       setStatus(message.message);
     };
-    socket.onerror = () => setError("Live candle stream failed.");
-    socket.onclose = () => setStatus((current) => (error ? current : "Live candle stream closed."));
+    socket.onerror = () => {
+      if (!isCurrentConnection()) return;
+      setError("Live candle stream failed.");
+      setStreamingTicker((current) => (current === activeTicker ? null : current));
+    };
+    socket.onclose = () => {
+      if (!isCurrentConnection()) return;
+      setStatus("Live candle stream closed.");
+      setStreamingTicker((current) => (current === activeTicker ? null : current));
+    };
 
-    return () => socket.close();
-  }, [ticker]);
+    return () => {
+      closedByComponent = true;
+      socket.close();
+    };
+  }, [ticker, streamingTicker]);
 
   const chart = useMemo(() => {
     const width = 960;
@@ -97,18 +131,49 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-primary">Live Alpaca Candles</div>
-          <div className="text-xs text-muted">Minute bars from Alpaca IEX. Historical line chart stays separate below.</div>
+          <div className="text-xs text-muted">Start the stream only when you need live Alpaca minute bars.</div>
         </div>
-        <div className={`text-xs ${error ? "text-red-600" : "text-muted"}`}>{error ?? status}</div>
+        <div className="flex items-center gap-3">
+          <div className={`text-xs ${error ? "text-red-600" : "text-muted"}`}>{error ?? status}</div>
+          {isStreaming ? (
+            <button
+              className="h-8 border border-border px-3 text-sm text-primary hover:border-accent"
+              onClick={() => {
+                setStreamingTicker(null);
+                setStatus("Live stream stopped. Last received candles remain visible.");
+              }}
+              type="button"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              className="h-8 border border-border px-3 text-sm text-primary hover:border-accent"
+              onClick={() => {
+                setCandles([]);
+                setError(null);
+                setStreamingTicker(ticker);
+              }}
+              type="button"
+            >
+              Start live stream
+            </button>
+          )}
+        </div>
       </div>
 
       {candles.length === 0 ? (
         <div className="flex h-[220px] flex-col items-center justify-center border border-border px-4 text-center">
           <div className={`text-sm ${error ? "text-red-600" : "text-muted"}`}>{error ?? status}</div>
-          {!error && (
+          {!error && isStreaming && (
             <div className="mt-2 max-w-[420px] text-xs leading-5 text-muted">
               Alpaca sends live candles as minute bars. If the US market is closed, or no new minute bar has arrived yet,
               this panel can stay empty while the WebSocket remains connected.
+            </div>
+          )}
+          {!error && !isStreaming && (
+            <div className="mt-2 max-w-[420px] text-xs leading-5 text-muted">
+              Saved research stays loaded without opening an Alpaca connection.
             </div>
           )}
         </div>
