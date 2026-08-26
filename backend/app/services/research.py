@@ -98,14 +98,16 @@ def _has_useful_metadata(meta: dict[str, Any]) -> bool:
     return has_fundamentals or has_context
 
 
-def _merge_saved_metadata(saved: dict[str, Any], fresh: dict[str, Any]) -> dict[str, Any]:
+def _merge_saved_metadata(saved: dict[str, Any], fresh: dict[str, Any], ticker: str) -> dict[str, Any]:
     merged = fresh.copy()
     for field in (*_COMPANY_CONTEXT_FIELDS, *_FUNDAMENTAL_FIELDS):
         if merged.get(field) in (None, "") and saved.get(field) not in (None, ""):
             merged[field] = saved[field]
     if merged.get("sector") in (None, "", "Equity") and saved.get("sector") not in (None, "", "Equity"):
         merged["sector"] = saved["sector"]
-    if saved.get("name") and not _has_useful_metadata(fresh):
+    fresh_name = str(merged.get("name") or "").strip()
+    saved_name = str(saved.get("name") or "").strip()
+    if saved_name and (not fresh_name or fresh_name.upper() == ticker.upper()):
         merged["name"] = saved["name"]
     return merged
 
@@ -343,8 +345,8 @@ def run_research_check(ticker: str, db: Session | None) -> ResearchResponse:
     fetched_at = datetime.now(UTC)
     if db is None:
         cached = _memory_research_snapshots.get(ticker.upper())
-        if cached and not _has_useful_metadata(meta):
-            meta = cached["meta"].copy()
+        if cached:
+            meta = _merge_saved_metadata(cached["meta"], meta, ticker)
         _memory_research_snapshots[ticker.upper()] = {
             "df": df.copy(),
             "signals": signals.copy(),
@@ -353,8 +355,7 @@ def run_research_check(ticker: str, db: Session | None) -> ResearchResponse:
         }
     else:
         saved_meta = _company_metadata(db, ticker)
-        if _has_useful_metadata(saved_meta):
-            meta = _merge_saved_metadata(saved_meta, meta)
+        meta = _merge_saved_metadata(saved_meta, meta, ticker)
         _save_company(db, ticker, meta)
         _save_price_history(db, ticker, df)
         _save_signal_snapshot(db, ticker, signals)
@@ -380,8 +381,8 @@ def generate_research_snapshot(ticker: str, db: Session | None) -> ResearchRespo
     meta = fetch_company_metadata(ticker)
     if db is None:
         cached = _memory_research_snapshots.get(ticker.upper())
-        if cached and not _has_useful_metadata(meta):
-            meta = cached["meta"].copy()
+        if cached:
+            meta = _merge_saved_metadata(cached["meta"], meta, ticker)
         _memory_research_snapshots[ticker.upper()] = {
             "df": df.copy(),
             "signals": signals.copy(),
@@ -390,8 +391,7 @@ def generate_research_snapshot(ticker: str, db: Session | None) -> ResearchRespo
         }
     else:
         saved_meta = _company_metadata(db, ticker)
-        if _has_useful_metadata(saved_meta):
-            meta = _merge_saved_metadata(saved_meta, meta)
+        meta = _merge_saved_metadata(saved_meta, meta, ticker)
         _save_company(db, ticker, meta)
         _save_price_history(db, ticker, df)
         db.commit()

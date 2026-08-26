@@ -284,13 +284,41 @@ def test_research_metadata_merge_preserves_saved_fundamentals_after_provider_mis
         "dividend_yield": 0.004,
     }
 
-    merged = research_service._merge_saved_metadata(saved_metadata, research_service._empty_metadata("AAPL"))
+    merged = research_service._merge_saved_metadata(saved_metadata, research_service._empty_metadata("AAPL"), "AAPL")
 
     assert merged["name"] == "Apple Inc."
     assert merged["sector"] == "Technology"
     assert merged["industry"] == "Consumer Electronics"
     assert merged["market_cap"] == 3_000_000_000_000
     assert merged["revenue_ttm"] == 390_000_000_000
+
+
+def test_research_metadata_merge_restores_fallback_name_with_partial_fresh_metadata() -> None:
+    saved_metadata = {
+        **research_service._empty_metadata("AAPL"),
+        "name": "Apple Inc.",
+        "market_cap": 3_000_000_000_000,
+        "pe_ratio": 31.5,
+    }
+    fresh_metadata = {
+        **research_service._empty_metadata("AAPL"),
+        "market_cap": 3_100_000_000_000,
+    }
+
+    merged = research_service._merge_saved_metadata(saved_metadata, fresh_metadata, "AAPL")
+
+    assert merged["name"] == "Apple Inc."
+    assert merged["market_cap"] == 3_100_000_000_000
+    assert merged["pe_ratio"] == 31.5
+
+
+def test_research_metadata_merge_keeps_fresh_valid_name_without_other_fields() -> None:
+    saved_metadata = {**research_service._empty_metadata("AAPL"), "name": "Apple Inc."}
+    fresh_metadata = {**research_service._empty_metadata("AAPL"), "name": "Apple Incorporated"}
+
+    merged = research_service._merge_saved_metadata(saved_metadata, fresh_metadata, "AAPL")
+
+    assert merged["name"] == "Apple Incorporated"
 
 
 def test_chart_reads_saved_daily_bars_without_fetching(monkeypatch) -> None:
