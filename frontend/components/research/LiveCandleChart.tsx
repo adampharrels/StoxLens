@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getLiveCandleStreamUrl } from "@/lib/api";
 import type { LiveCandle, LiveStreamError, LiveStreamStatus } from "@/lib/types";
 
@@ -33,9 +33,11 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
   const [status, setStatus] = useState("Live stream idle. Start when you need live minute bars.");
   const [error, setError] = useState<string | null>(null);
   const [streamingTicker, setStreamingTicker] = useState<string | null>(null);
+  const connectionGenerationRef = useRef(0);
   const isStreaming = streamingTicker === ticker;
 
   useEffect(() => {
+    connectionGenerationRef.current += 1;
     setCandles([]);
     setError(null);
     setStreamingTicker(null);
@@ -49,16 +51,24 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
     setStatus("Connecting to Alpaca live candles.");
     let closedByComponent = false;
     const activeTicker = streamingTicker;
+    const connectionGeneration = connectionGenerationRef.current + 1;
+    connectionGenerationRef.current = connectionGeneration;
+    const isCurrentConnection = () => !closedByComponent && connectionGenerationRef.current === connectionGeneration;
 
     // The browser connects to our backend proxy so Alpaca keys never enter the client bundle.
     const socket = new WebSocket(getLiveCandleStreamUrl(activeTicker));
 
-    socket.onopen = () => setStatus("Connected to backend. Waiting for Alpaca.");
+    socket.onopen = () => {
+      if (!isCurrentConnection()) return;
+      setStatus("Connected to backend. Waiting for Alpaca.");
+    };
     socket.onmessage = (event) => {
+      if (!isCurrentConnection()) return;
       let message: StreamMessage;
       try {
         message = JSON.parse(event.data) as StreamMessage;
       } catch {
+        if (!isCurrentConnection()) return;
         setError("Live candle stream sent an invalid message.");
         return;
       }
@@ -75,14 +85,14 @@ export function LiveCandleChart({ ticker }: { ticker: string }) {
       setStatus(message.message);
     };
     socket.onerror = () => {
+      if (!isCurrentConnection()) return;
       setError("Live candle stream failed.");
       setStreamingTicker((current) => (current === activeTicker ? null : current));
     };
     socket.onclose = () => {
-      if (!closedByComponent) {
-        setStatus("Live candle stream closed.");
-        setStreamingTicker((current) => (current === activeTicker ? null : current));
-      }
+      if (!isCurrentConnection()) return;
+      setStatus("Live candle stream closed.");
+      setStreamingTicker((current) => (current === activeTicker ? null : current));
     };
 
     return () => {
