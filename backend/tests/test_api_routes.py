@@ -524,6 +524,8 @@ def test_triage_snapshot_columns_have_defaults_for_existing_databases() -> None:
     assert "top_news JSON DEFAULT '[]' NOT NULL" in ddl
     assert "price_change_pct FLOAT DEFAULT 0 NOT NULL" in ddl
     assert "as_of_date DATE DEFAULT CURRENT_DATE NOT NULL" in ddl
+    assert "volatility_percentile FLOAT DEFAULT 0 NOT NULL" in ddl
+    assert "volume_ratio FLOAT DEFAULT 1 NOT NULL" in ddl
 
 
 def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
@@ -699,6 +701,8 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
             "price_change_pct": -0.021,
             "as_of_date": "2026-08-14",
             "volume": 1200000.0,
+            "volatility_percentile": 0.72,
+            "volume_ratio": 1.8,
             "rsi": 55.0,
             "moving_average_status": "above_both",
             "created_at": datetime(2026, 8, 14, 9, 0),
@@ -720,6 +724,8 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
         assert body["items"][0]["attention_score"] == 24
         assert body["items"][0]["price_change_pct"] == -0.021
         assert body["items"][0]["as_of_date"] == "2026-08-14"
+        assert body["items"][0]["metrics"]["volatility_percentile"] == 0.72
+        assert body["items"][0]["metrics"]["volume_ratio"] == 1.8
         assert [article["title"] for article in body["items"][0]["news"]] == ["MSFT raises cloud guidance"]
         assert body["items"][0]["reasons"][0]["code"] == "volume_surge"
     finally:

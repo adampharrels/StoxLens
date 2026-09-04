@@ -328,6 +328,8 @@ def _snapshot_payload(item: TriageItemOut) -> dict[str, object]:
         "price_change_pct": item.price_change_pct,
         "as_of_date": item.as_of_date,
         "volume": float(item.metrics.get("volume", 0.0)),
+        "volatility_percentile": float(item.metrics.get("volatility_percentile", 0.0)),
+        "volume_ratio": float(item.metrics.get("volume_ratio", 1.0)),
         "rsi": float(item.metrics.get("rsi", 0.0)),
         "moving_average_status": str(item.metrics.get("ma_signal", "")),
         "created_at": datetime.now(UTC),
@@ -421,6 +423,8 @@ def _snapshot_item(
         news=news,
         metrics={
             "volume": float(_snapshot_value(snapshot, "volume") or 0.0),
+            "volatility_percentile": float(_snapshot_value(snapshot, "volatility_percentile") or 0.0),
+            "volume_ratio": float(_snapshot_value(snapshot, "volume_ratio") or 1.0),
             "rsi": float(_snapshot_value(snapshot, "rsi") or 0.0),
             "ma_signal": str(_snapshot_value(snapshot, "moving_average_status") or ""),
         },

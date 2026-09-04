@@ -91,6 +91,8 @@ def _ensure_triage_snapshot_columns() -> None:
         "top_news": f"ALTER TABLE triage_snapshots ADD COLUMN top_news {json_type} NOT NULL DEFAULT {json_default}",
         "price_change_pct": "ALTER TABLE triage_snapshots ADD COLUMN price_change_pct FLOAT NOT NULL DEFAULT 0",
         "as_of_date": "ALTER TABLE triage_snapshots ADD COLUMN as_of_date DATE NOT NULL DEFAULT CURRENT_DATE",
+        "volatility_percentile": "ALTER TABLE triage_snapshots ADD COLUMN volatility_percentile FLOAT NOT NULL DEFAULT 0",
+        "volume_ratio": "ALTER TABLE triage_snapshots ADD COLUMN volume_ratio FLOAT NOT NULL DEFAULT 1",
     }
     with engine.begin() as connection:
         for column, statement in statements.items():

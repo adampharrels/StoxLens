@@ -115,6 +115,8 @@ class TriageSnapshot(Base):
     price_change_pct: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
     as_of_date: Mapped[date] = mapped_column(Date, default=date.today, server_default=text("CURRENT_DATE"), nullable=False)
     volume: Mapped[float] = mapped_column(Float)
+    volatility_percentile: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
+    volume_ratio: Mapped[float] = mapped_column(Float, default=1.0, server_default=text("1"), nullable=False)
     rsi: Mapped[float] = mapped_column(Float)
     moving_average_status: Mapped[str] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
