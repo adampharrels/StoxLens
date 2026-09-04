@@ -507,6 +507,9 @@ def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
     assert "watch_reason TEXT DEFAULT '' NOT NULL" in ddl
     assert "main_risk TEXT DEFAULT '' NOT NULL" in ddl
     assert "change_my_mind TEXT DEFAULT '' NOT NULL" in ddl
+    assert "last_check_status VARCHAR(32)" in ddl
+    assert "last_check_message TEXT" in ddl
+    assert "last_checked_at DATETIME" in ddl
 
 
 def test_company_metadata_columns_have_valid_defaults() -> None:

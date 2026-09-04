@@ -99,6 +99,9 @@ class WatchlistItem(Base):
     watch_reason: Mapped[str] = mapped_column(Text, default="", server_default=text("''"), nullable=False)
     main_risk: Mapped[str] = mapped_column(Text, default="", server_default=text("''"), nullable=False)
     change_my_mind: Mapped[str] = mapped_column(Text, default="", server_default=text("''"), nullable=False)
+    last_check_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_check_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

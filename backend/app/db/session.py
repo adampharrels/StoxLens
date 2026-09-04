@@ -38,10 +38,14 @@ def _ensure_watchlist_note_columns() -> None:
         return
 
     existing = {column["name"] for column in inspector.get_columns("watchlist_items")}
+    checked_at_type = "TIMESTAMP WITH TIME ZONE" if engine.dialect.name == "postgresql" else "TIMESTAMP"
     statements = {
         "watch_reason": "ALTER TABLE watchlist_items ADD COLUMN watch_reason TEXT NOT NULL DEFAULT ''",
         "main_risk": "ALTER TABLE watchlist_items ADD COLUMN main_risk TEXT NOT NULL DEFAULT ''",
         "change_my_mind": "ALTER TABLE watchlist_items ADD COLUMN change_my_mind TEXT NOT NULL DEFAULT ''",
+        "last_check_status": "ALTER TABLE watchlist_items ADD COLUMN last_check_status VARCHAR(32)",
+        "last_check_message": "ALTER TABLE watchlist_items ADD COLUMN last_check_message TEXT",
+        "last_checked_at": f"ALTER TABLE watchlist_items ADD COLUMN last_checked_at {checked_at_type}",
     }
     with engine.begin() as connection:
         for column, statement in statements.items():
