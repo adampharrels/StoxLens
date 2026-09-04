@@ -123,6 +123,9 @@ export interface WatchlistItem {
   watch_reason: string;
   main_risk: string;
   change_my_mind: string;
+  last_check_status: "ok" | "data_issue" | null;
+  last_check_message: string | null;
+  last_checked_at: string | null;
   created_at: string;
 }
 
@@ -162,11 +165,14 @@ export interface TriageChange {
 
 export interface TriageItem {
   ticker: string;
-  attention_score: number;
-  severity: "Low" | "Medium" | "High";
-  price: number;
-  price_change_pct: number;
-  as_of_date: string;
+  status: "ok" | "not_checked" | "data_issue";
+  issue_message: string | null;
+  last_checked_at: string | null;
+  attention_score: number | null;
+  severity: "Low" | "Medium" | "High" | null;
+  price: number | null;
+  price_change_pct: number | null;
+  as_of_date: string | null;
   reasons: TriageReason[];
   news: NewsArticle[];
   metrics: Record<string, number | string>;

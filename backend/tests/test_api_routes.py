@@ -15,7 +15,7 @@ from app.services.alpaca_stream import alpaca_stream_url, parse_alpaca_bar, publ
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
-from app.services.market_data import MarketDataError, RateLimitError, TickerNotFoundError
+from app.services.market_data import InsufficientPriceDataError, MarketDataError, RateLimitError, TickerNotFoundError
 from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
 
@@ -555,6 +555,80 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
     assert body["items"][0]["attention_score"] > body["items"][1]["attention_score"]
     assert body["items"][0]["reasons"]
     assert seen == ["AAPL", "MSFT"]
+
+
+def test_get_triage_returns_not_checked_watchlist_rows_without_snapshot(monkeypatch) -> None:
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(
+        triage_service,
+        "list_watchlist",
+        lambda db: [
+            {
+                "ticker": "BHP.AX",
+                "created_at": datetime(2026, 8, 14, tzinfo=UTC),
+                "signal": "Tracked",
+                "watch_reason": "Iron ore cash flow.",
+                "main_risk": "",
+                "change_my_mind": "",
+                "last_check_status": None,
+                "last_check_message": None,
+                "last_checked_at": None,
+            }
+        ],
+    )
+
+    try:
+        response = client.get("/api/triage")
+        item = response.json()["items"][0]
+
+        assert response.status_code == 200
+        assert item["ticker"] == "BHP.AX"
+        assert item["status"] == "not_checked"
+        assert item["attention_score"] is None
+        assert item["severity"] is None
+        assert item["issue_message"] == "Run Check to create the first snapshot."
+        assert item["watch_note"]["watch_reason"] == "Iron ore cash flow."
+    finally:
+        triage_service._memory_triage_snapshots.clear()
+
+
+def test_triage_run_returns_data_issue_without_fake_snapshot(monkeypatch) -> None:
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(
+        triage_service,
+        "list_watchlist",
+        lambda db: [
+            {
+                "ticker": "BHP.AX",
+                "created_at": datetime(2026, 8, 14, tzinfo=UTC),
+                "signal": "Tracked",
+                "watch_reason": "",
+                "main_risk": "",
+                "change_my_mind": "",
+                "last_check_status": None,
+                "last_check_message": None,
+                "last_checked_at": None,
+            }
+        ],
+    )
+
+    def fail_fetch(ticker: str) -> pd.DataFrame:
+        raise InsufficientPriceDataError("raw provider details")
+
+    monkeypatch.setattr(triage_service, "fetch_price_data", fail_fetch)
+
+    try:
+        response = client.post("/api/triage/run")
+        item = response.json()["items"][0]
+
+        assert response.status_code == 200
+        assert item["status"] == "data_issue"
+        assert item["attention_score"] is None
+        assert item["price"] is None
+        assert item["issue_message"] == "Provider could not return enough price history."
+        assert triage_service._memory_triage_snapshots == {}
+    finally:
+        triage_service._memory_triage_snapshots.clear()
 
 
 def test_triage_adds_price_relevant_news(monkeypatch) -> None:

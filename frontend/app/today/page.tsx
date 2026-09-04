@@ -22,8 +22,8 @@ function generatedLabel(value: string) {
 export default async function TodayPage() {
   try {
     const data = await getTriage();
-    const highCount = data.items.filter((item) => item.severity === "High").length;
-    const mediumCount = data.items.filter((item) => item.severity === "Medium").length;
+    const highCount = data.items.filter((item) => item.status === "ok" && item.severity === "High").length;
+    const mediumCount = data.items.filter((item) => item.status === "ok" && item.severity === "Medium").length;
 
     return (
       <div className="px-6 py-4">
