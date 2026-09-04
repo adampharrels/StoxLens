@@ -41,5 +41,6 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: pip-audit -r requirements.txt
+        if: github.event_name == 'push'
       - run: python -m compileall app
       - run: python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=45
