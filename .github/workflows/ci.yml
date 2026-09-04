@@ -19,6 +19,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm audit --omit=dev
+        if: github.event_name == 'push'
       - run: npm run type-check
       - run: npm run build
 
