@@ -15,6 +15,7 @@ from app.services.alpaca_stream import alpaca_stream_url, parse_alpaca_bar, publ
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
+from app.services import watchlist as watchlist_service
 from app.services.market_data import InsufficientPriceDataError, MarketDataError, RateLimitError, TickerNotFoundError
 from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
@@ -499,6 +500,31 @@ def test_watchlist_can_add_and_remove_items() -> None:
     assert any(item["ticker"] == "AMD" for item in listed.json())
     assert any(item["change_my_mind"] == "Demand slows." for item in listed.json())
     assert deleted.status_code == 204
+
+
+def test_memory_watchlist_rename_collision_preserves_replacement_check_status() -> None:
+    watchlist_service._memory_watchlist.clear()
+    checked_at = datetime(2026, 8, 14, 9, 0, tzinfo=UTC)
+
+    try:
+        watchlist_service.add_watchlist_item(None, "AAPL")
+        watchlist_service.add_watchlist_item(None, "MSFT")
+        watchlist_service.update_check_status(
+            None,
+            "MSFT",
+            "data_issue",
+            message="Provider could not return enough price history.",
+            checked_at=checked_at,
+        )
+
+        updated = watchlist_service.update_watchlist_item(None, "AAPL", "MSFT")
+
+        assert updated["ticker"] == "MSFT"
+        assert updated["last_check_status"] == "data_issue"
+        assert updated["last_check_message"] == "Provider could not return enough price history."
+        assert updated["last_checked_at"] == checked_at
+    finally:
+        watchlist_service._memory_watchlist.clear()
 
 
 def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
