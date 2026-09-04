@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { PricePoint } from "@/lib/types";
 
-const periods = ["1M", "3M", "6M", "1Y", "3Y"] as const;
-const limits = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252, "3Y": 756 };
+const periods = ["1M", "3M", "6M", "1Y"] as const;
+const limits = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252 };
 
 export function PriceChart({ data }: { data: PricePoint[] }) {
   const [period, setPeriod] = useState<(typeof periods)[number]>("1Y");
