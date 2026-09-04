@@ -40,14 +40,17 @@ class TriageChangeOut(BaseModel):
 
 class TriageItemOut(BaseModel):
     ticker: str
-    attention_score: int = Field(ge=0, le=100)
-    severity: Literal["Low", "Medium", "High"]
-    price: float
-    price_change_pct: float
-    as_of_date: date
-    reasons: list[TriageReasonOut]
-    news: list[NewsArticleOut]
-    metrics: dict[str, float | int | str]
+    status: Literal["ok", "not_checked", "data_issue"] = "ok"
+    issue_message: str | None = None
+    last_checked_at: datetime | None = None
+    attention_score: int | None = Field(default=None, ge=0, le=100)
+    severity: Literal["Low", "Medium", "High"] | None = None
+    price: float | None = None
+    price_change_pct: float | None = None
+    as_of_date: date | None = None
+    reasons: list[TriageReasonOut] = Field(default_factory=list)
+    news: list[NewsArticleOut] = Field(default_factory=list)
+    metrics: dict[str, float | int | str] = Field(default_factory=dict)
     watch_note: WatchNoteOut
     changes: TriageChangeOut | None = None
 

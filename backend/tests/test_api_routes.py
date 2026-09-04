@@ -15,7 +15,8 @@ from app.services.alpaca_stream import alpaca_stream_url, parse_alpaca_bar, publ
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
-from app.services.market_data import MarketDataError, RateLimitError, TickerNotFoundError
+from app.services import watchlist as watchlist_service
+from app.services.market_data import InsufficientPriceDataError, MarketDataError, RateLimitError, TickerNotFoundError
 from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
 
@@ -501,12 +502,40 @@ def test_watchlist_can_add_and_remove_items() -> None:
     assert deleted.status_code == 204
 
 
+def test_memory_watchlist_rename_collision_preserves_replacement_check_status() -> None:
+    watchlist_service._memory_watchlist.clear()
+    checked_at = datetime(2026, 8, 14, 9, 0, tzinfo=UTC)
+
+    try:
+        watchlist_service.add_watchlist_item(None, "AAPL")
+        watchlist_service.add_watchlist_item(None, "MSFT")
+        watchlist_service.update_check_status(
+            None,
+            "MSFT",
+            "data_issue",
+            message="Provider could not return enough price history.",
+            checked_at=checked_at,
+        )
+
+        updated = watchlist_service.update_watchlist_item(None, "AAPL", "MSFT")
+
+        assert updated["ticker"] == "MSFT"
+        assert updated["last_check_status"] == "data_issue"
+        assert updated["last_check_message"] == "Provider could not return enough price history."
+        assert updated["last_checked_at"] == checked_at
+    finally:
+        watchlist_service._memory_watchlist.clear()
+
+
 def test_watchlist_note_columns_have_valid_empty_defaults() -> None:
     ddl = str(CreateTable(models.WatchlistItem.__table__).compile(dialect=sqlite.dialect()))
 
     assert "watch_reason TEXT DEFAULT '' NOT NULL" in ddl
     assert "main_risk TEXT DEFAULT '' NOT NULL" in ddl
     assert "change_my_mind TEXT DEFAULT '' NOT NULL" in ddl
+    assert "last_check_status VARCHAR(32)" in ddl
+    assert "last_check_message TEXT" in ddl
+    assert "last_checked_at DATETIME" in ddl
 
 
 def test_company_metadata_columns_have_valid_defaults() -> None:
@@ -524,6 +553,8 @@ def test_triage_snapshot_columns_have_defaults_for_existing_databases() -> None:
     assert "top_news JSON DEFAULT '[]' NOT NULL" in ddl
     assert "price_change_pct FLOAT DEFAULT 0 NOT NULL" in ddl
     assert "as_of_date DATE DEFAULT CURRENT_DATE NOT NULL" in ddl
+    assert "volatility_percentile FLOAT DEFAULT 0 NOT NULL" in ddl
+    assert "volume_ratio FLOAT DEFAULT 1 NOT NULL" in ddl
 
 
 def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
@@ -550,6 +581,80 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
     assert body["items"][0]["attention_score"] > body["items"][1]["attention_score"]
     assert body["items"][0]["reasons"]
     assert seen == ["AAPL", "MSFT"]
+
+
+def test_get_triage_returns_not_checked_watchlist_rows_without_snapshot(monkeypatch) -> None:
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(
+        triage_service,
+        "list_watchlist",
+        lambda db: [
+            {
+                "ticker": "BHP.AX",
+                "created_at": datetime(2026, 8, 14, tzinfo=UTC),
+                "signal": "Tracked",
+                "watch_reason": "Iron ore cash flow.",
+                "main_risk": "",
+                "change_my_mind": "",
+                "last_check_status": None,
+                "last_check_message": None,
+                "last_checked_at": None,
+            }
+        ],
+    )
+
+    try:
+        response = client.get("/api/triage")
+        item = response.json()["items"][0]
+
+        assert response.status_code == 200
+        assert item["ticker"] == "BHP.AX"
+        assert item["status"] == "not_checked"
+        assert item["attention_score"] is None
+        assert item["severity"] is None
+        assert item["issue_message"] == "Run Check to create the first snapshot."
+        assert item["watch_note"]["watch_reason"] == "Iron ore cash flow."
+    finally:
+        triage_service._memory_triage_snapshots.clear()
+
+
+def test_triage_run_returns_data_issue_without_fake_snapshot(monkeypatch) -> None:
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(
+        triage_service,
+        "list_watchlist",
+        lambda db: [
+            {
+                "ticker": "BHP.AX",
+                "created_at": datetime(2026, 8, 14, tzinfo=UTC),
+                "signal": "Tracked",
+                "watch_reason": "",
+                "main_risk": "",
+                "change_my_mind": "",
+                "last_check_status": None,
+                "last_check_message": None,
+                "last_checked_at": None,
+            }
+        ],
+    )
+
+    def fail_fetch(ticker: str) -> pd.DataFrame:
+        raise InsufficientPriceDataError("raw provider details")
+
+    monkeypatch.setattr(triage_service, "fetch_price_data", fail_fetch)
+
+    try:
+        response = client.post("/api/triage/run")
+        item = response.json()["items"][0]
+
+        assert response.status_code == 200
+        assert item["status"] == "data_issue"
+        assert item["attention_score"] is None
+        assert item["price"] is None
+        assert item["issue_message"] == "Provider could not return enough price history."
+        assert triage_service._memory_triage_snapshots == {}
+    finally:
+        triage_service._memory_triage_snapshots.clear()
 
 
 def test_triage_adds_price_relevant_news(monkeypatch) -> None:
@@ -699,6 +804,8 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
             "price_change_pct": -0.021,
             "as_of_date": "2026-08-14",
             "volume": 1200000.0,
+            "volatility_percentile": 0.72,
+            "volume_ratio": 1.8,
             "rsi": 55.0,
             "moving_average_status": "above_both",
             "created_at": datetime(2026, 8, 14, 9, 0),
@@ -720,6 +827,8 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
         assert body["items"][0]["attention_score"] == 24
         assert body["items"][0]["price_change_pct"] == -0.021
         assert body["items"][0]["as_of_date"] == "2026-08-14"
+        assert body["items"][0]["metrics"]["volatility_percentile"] == 0.72
+        assert body["items"][0]["metrics"]["volume_ratio"] == 1.8
         assert [article["title"] for article in body["items"][0]["news"]] == ["MSFT raises cloud guidance"]
         assert body["items"][0]["reasons"][0]["code"] == "volume_surge"
     finally:

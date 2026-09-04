@@ -38,10 +38,14 @@ def _ensure_watchlist_note_columns() -> None:
         return
 
     existing = {column["name"] for column in inspector.get_columns("watchlist_items")}
+    checked_at_type = "TIMESTAMP WITH TIME ZONE" if engine.dialect.name == "postgresql" else "TIMESTAMP"
     statements = {
         "watch_reason": "ALTER TABLE watchlist_items ADD COLUMN watch_reason TEXT NOT NULL DEFAULT ''",
         "main_risk": "ALTER TABLE watchlist_items ADD COLUMN main_risk TEXT NOT NULL DEFAULT ''",
         "change_my_mind": "ALTER TABLE watchlist_items ADD COLUMN change_my_mind TEXT NOT NULL DEFAULT ''",
+        "last_check_status": "ALTER TABLE watchlist_items ADD COLUMN last_check_status VARCHAR(32)",
+        "last_check_message": "ALTER TABLE watchlist_items ADD COLUMN last_check_message TEXT",
+        "last_checked_at": f"ALTER TABLE watchlist_items ADD COLUMN last_checked_at {checked_at_type}",
     }
     with engine.begin() as connection:
         for column, statement in statements.items():
@@ -91,6 +95,8 @@ def _ensure_triage_snapshot_columns() -> None:
         "top_news": f"ALTER TABLE triage_snapshots ADD COLUMN top_news {json_type} NOT NULL DEFAULT {json_default}",
         "price_change_pct": "ALTER TABLE triage_snapshots ADD COLUMN price_change_pct FLOAT NOT NULL DEFAULT 0",
         "as_of_date": "ALTER TABLE triage_snapshots ADD COLUMN as_of_date DATE NOT NULL DEFAULT CURRENT_DATE",
+        "volatility_percentile": "ALTER TABLE triage_snapshots ADD COLUMN volatility_percentile FLOAT NOT NULL DEFAULT 0",
+        "volume_ratio": "ALTER TABLE triage_snapshots ADD COLUMN volume_ratio FLOAT NOT NULL DEFAULT 1",
     }
     with engine.begin() as connection:
         for column, statement in statements.items():

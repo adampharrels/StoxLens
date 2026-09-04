@@ -3,7 +3,15 @@ import { AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
 import { fmtPct } from "@/lib/format";
 import type { TriageItem, WatchNote } from "@/lib/types";
 
-const severityStyle: Record<TriageItem["severity"], string> = {
+type ScoredTriageItem = TriageItem & {
+  status: "ok";
+  attention_score: number;
+  severity: "Low" | "Medium" | "High";
+  price: number;
+  price_change_pct: number;
+};
+
+const severityStyle: Record<ScoredTriageItem["severity"], string> = {
   High: "text-red-600",
   Medium: "text-amber-600",
   Low: "text-secondary"
@@ -15,7 +23,11 @@ const severityIcon = {
   Low: CircleCheck
 };
 
-function metricLabel(item: TriageItem) {
+function isScoredItem(item: TriageItem): item is ScoredTriageItem {
+  return item.status === "ok" && item.attention_score !== null && item.severity !== null && item.price !== null && item.price_change_pct !== null;
+}
+
+function metricLabel(item: ScoredTriageItem) {
   const rsi = Number(item.metrics.rsi);
   const vol = Number(item.metrics.volatility_percentile);
   const volume = Number(item.metrics.volume_ratio);
@@ -77,9 +89,18 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
     );
   }
 
+  const rankedItems = items.filter(isScoredItem);
+  const issueItems = items.filter((item) => !isScoredItem(item));
+
   return (
-    <div className="border-t border-border">
-      {items.map((item) => {
+    <div className="space-y-6">
+      <div className="border-t border-border">
+        {rankedItems.length === 0 && (
+          <div className="border-b border-border py-6 text-sm text-secondary">
+            No scored ticker checks yet. Run Check to create the first triage snapshot.
+          </div>
+        )}
+        {rankedItems.map((item) => {
         const Icon = severityIcon[item.severity];
         const topReasons = item.reasons.slice(0, 3);
         const watchNote = item.watch_note ?? emptyWatchNote;
@@ -184,6 +205,49 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
           </div>
         );
       })}
+      </div>
+
+      {issueItems.length > 0 && (
+        <div>
+          <div className="mb-2 text-sm font-medium text-primary">Needs check / Data issues</div>
+          <div className="border-t border-border">
+            {issueItems.map((item) => {
+              const watchNote = item.watch_note ?? emptyWatchNote;
+              const message = item.issue_message ?? "Run Check to create the first snapshot.";
+              const status = item.status === "data_issue" ? "Data issue" : "Not checked yet";
+              return (
+                <div key={item.ticker} className="grid grid-cols-[92px_130px_minmax(0,1fr)] gap-4 border-b border-border py-4">
+                  <div>
+                    <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
+                      {item.ticker}
+                    </Link>
+                  </div>
+                  <div>
+                    <div className="inline-flex items-center gap-1 text-sm font-medium text-secondary">
+                      <CircleDot className="h-4 w-4" />
+                      {status}
+                    </div>
+                    {item.last_checked_at && (
+                      <div className="mt-1 text-xs text-muted">
+                        {newsLabel(item.last_checked_at)}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-sm text-secondary">{message}</div>
+                    {watchNote.watch_reason && (
+                      <div className="mt-2 grid grid-cols-[130px_1fr] gap-3 text-sm">
+                        <div className="label">Why watching</div>
+                        <div className="text-secondary">{watchNote.watch_reason}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

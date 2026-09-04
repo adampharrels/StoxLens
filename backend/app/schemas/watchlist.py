@@ -16,4 +16,7 @@ class WatchlistItemOut(BaseModel):
     watch_reason: str
     main_risk: str
     change_my_mind: str
+    last_check_status: str | None = None
+    last_check_message: str | None = None
+    last_checked_at: datetime | None = None
     created_at: datetime

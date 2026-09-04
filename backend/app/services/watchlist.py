@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 
-WatchlistRecord = dict[str, str | datetime]
+WatchlistRecord = dict[str, str | datetime | None]
 
 _memory_watchlist: dict[str, WatchlistRecord] = {}
 
@@ -29,6 +29,9 @@ def _record(
     watch_reason: str = "",
     main_risk: str = "",
     change_my_mind: str = "",
+    last_check_status: str | None = None,
+    last_check_message: str | None = None,
+    last_checked_at: datetime | None = None,
 ) -> WatchlistRecord:
     return {
         "ticker": ticker,
@@ -37,6 +40,9 @@ def _record(
         "watch_reason": watch_reason,
         "main_risk": main_risk,
         "change_my_mind": change_my_mind,
+        "last_check_status": last_check_status,
+        "last_check_message": last_check_message,
+        "last_checked_at": last_checked_at,
     }
 
 
@@ -52,6 +58,9 @@ def _model_record(item: models.WatchlistItem) -> WatchlistRecord:
         watch_reason=item.watch_reason,
         main_risk=item.main_risk,
         change_my_mind=item.change_my_mind,
+        last_check_status=item.last_check_status,
+        last_check_message=item.last_check_message,
+        last_checked_at=item.last_checked_at,
     )
 
 
@@ -93,6 +102,9 @@ def add_watchlist_item(
             watch_reason=_clean_note(watch_reason),
             main_risk=_clean_note(main_risk),
             change_my_mind=_clean_note(change_my_mind),
+            last_check_status=existing.get("last_check_status") if existing else None,
+            last_check_message=existing.get("last_check_message") if existing else None,
+            last_checked_at=existing.get("last_checked_at") if existing else None,
         )
         return _memory_watchlist[normalised]
 
@@ -123,14 +135,19 @@ def update_watchlist_item(
     current = _normalise_ticker(ticker)
     updated = _normalise_ticker(replacement)
     if db is None:
-        existing = _memory_watchlist.pop(current, None)
-        created_at = _created_at(existing)
+        source = _memory_watchlist.pop(current, None)
+        existing = _memory_watchlist.get(updated)
+        status_source = existing or source
+        created_at = _created_at(existing or source)
         _memory_watchlist[updated] = _record(
             updated,
             created_at,
             watch_reason=_clean_note(watch_reason),
             main_risk=_clean_note(main_risk),
             change_my_mind=_clean_note(change_my_mind),
+            last_check_status=status_source.get("last_check_status") if status_source else None,
+            last_check_message=status_source.get("last_check_message") if status_source else None,
+            last_checked_at=status_source.get("last_checked_at") if status_source else None,
         )
         return _memory_watchlist[updated]
 
@@ -164,3 +181,30 @@ def remove_watchlist_item(db: Session | None, ticker: str) -> None:
     if item:
         db.delete(item)
         db.commit()
+
+
+def update_check_status(
+    db: Session | None,
+    ticker: str,
+    status: str,
+    *,
+    message: str | None = None,
+    checked_at: datetime | None = None,
+) -> None:
+    normalised = _normalise_ticker(ticker)
+    checked_at = checked_at or _now()
+    if db is None:
+        existing = _memory_watchlist.get(normalised)
+        if existing is None:
+            return
+        existing["last_check_status"] = status
+        existing["last_check_message"] = message
+        existing["last_checked_at"] = checked_at
+        return
+
+    item = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == normalised).first()
+    if item is None:
+        return
+    item.last_check_status = status
+    item.last_check_message = message
+    item.last_checked_at = checked_at

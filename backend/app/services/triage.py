@@ -18,7 +18,7 @@ from app.services.market_data import (
 )
 from app.services.news import NewsArticle, fetch_ticker_news
 from app.services.signals import calculate_signals
-from app.services.watchlist import list_watchlist
+from app.services.watchlist import list_watchlist, update_check_status
 
 _memory_triage_snapshots: dict[str, list[dict[str, object]]] = {}
 TRIAGE_SNAPSHOT_RETENTION = 20
@@ -72,6 +72,33 @@ def _watch_note(ticker: str, item: dict[str, object] | None = None) -> WatchNote
         main_risk=str(item.get("main_risk", "")) if item else "",
         change_my_mind=str(item.get("change_my_mind", "")) if item else "",
     )
+
+
+def _issue_item(
+    ticker: str,
+    status: str,
+    message: str,
+    watch_note: dict[str, object] | None = None,
+    *,
+    checked_at: datetime | None = None,
+) -> TriageItemOut:
+    return TriageItemOut(
+        ticker=ticker.upper(),
+        status=status,  # type: ignore[arg-type]
+        issue_message=message,
+        last_checked_at=checked_at,
+        watch_note=_watch_note(ticker, watch_note),
+    )
+
+
+def _provider_issue_message(exc: Exception) -> str:
+    if isinstance(exc, InsufficientPriceDataError):
+        return "Provider could not return enough price history."
+    if isinstance(exc, RateLimitError):
+        return "Market data provider rate limit was reached."
+    if isinstance(exc, TickerNotFoundError):
+        return "Ticker could not be found or is not supported."
+    return "Unable to check this ticker right now."
 
 
 def score_ticker(
@@ -165,6 +192,7 @@ def score_ticker(
 
     return TriageItemOut(
         ticker=ticker.upper(),
+        status="ok",
         attention_score=score,
         severity=severity,
         price=current,
@@ -328,6 +356,8 @@ def _snapshot_payload(item: TriageItemOut) -> dict[str, object]:
         "price_change_pct": item.price_change_pct,
         "as_of_date": item.as_of_date,
         "volume": float(item.metrics.get("volume", 0.0)),
+        "volatility_percentile": float(item.metrics.get("volatility_percentile", 0.0)),
+        "volume_ratio": float(item.metrics.get("volume_ratio", 1.0)),
         "rsi": float(item.metrics.get("rsi", 0.0)),
         "moving_average_status": str(item.metrics.get("ma_signal", "")),
         "created_at": datetime.now(UTC),
@@ -421,10 +451,13 @@ def _snapshot_item(
         news=news,
         metrics={
             "volume": float(_snapshot_value(snapshot, "volume") or 0.0),
+            "volatility_percentile": float(_snapshot_value(snapshot, "volatility_percentile") or 0.0),
+            "volume_ratio": float(_snapshot_value(snapshot, "volume_ratio") or 1.0),
             "rsi": float(_snapshot_value(snapshot, "rsi") or 0.0),
             "ma_signal": str(_snapshot_value(snapshot, "moving_average_status") or ""),
         },
         watch_note=_watch_note(ticker, watch_note),
+        last_checked_at=generated_at,
     )
 
 
@@ -435,16 +468,45 @@ def read_triage(db: Session | None, tickers: str | None = None) -> TriageRespons
     generated_at: datetime | None = None
     for ticker in ticker_list:
         snapshots = _latest_snapshots(db, ticker, limit=2)
+        watch_note = watch_notes.get(ticker)
+        watch_status = str(watch_note.get("last_check_status", "")) if watch_note else ""
+        watch_message = str(watch_note.get("last_check_message", "")) if watch_note else ""
+        watch_checked_at = _snapshot_datetime(watch_note.get("last_checked_at")) if watch_note else None
         if not snapshots:
+            if watch_status == "data_issue":
+                items.append(
+                    _issue_item(
+                        ticker,
+                        "data_issue",
+                        watch_message or "Unable to check this ticker right now.",
+                        watch_note,
+                        checked_at=watch_checked_at,
+                    )
+                )
+            else:
+                items.append(_issue_item(ticker, "not_checked", "Run Check to create the first snapshot.", watch_note))
             continue
-        item = _snapshot_item(snapshots[0], watch_notes.get(ticker))
-        item.changes = _snapshot_changes(snapshots[1] if len(snapshots) > 1 else None, item)
         snapshot_created_at = _snapshot_datetime(_snapshot_value(snapshots[0], "created_at"))
+        if watch_status == "data_issue" and watch_checked_at and (snapshot_created_at is None or watch_checked_at > snapshot_created_at):
+            items.append(
+                _issue_item(
+                    ticker,
+                    "data_issue",
+                    watch_message or "Unable to check this ticker right now.",
+                    watch_note,
+                    checked_at=watch_checked_at,
+                )
+            )
+            if generated_at is None or watch_checked_at > generated_at:
+                generated_at = watch_checked_at
+            continue
+        item = _snapshot_item(snapshots[0], watch_note)
+        item.changes = _snapshot_changes(snapshots[1] if len(snapshots) > 1 else None, item)
         if snapshot_created_at is not None and (generated_at is None or snapshot_created_at > generated_at):
             generated_at = snapshot_created_at
         items.append(item)
 
-    items.sort(key=lambda item: (item.attention_score, abs(item.price_change_pct)), reverse=True)
+    items.sort(key=lambda item: (item.status == "ok", item.attention_score or -1, abs(item.price_change_pct or 0.0)), reverse=True)
     return TriageResponse(generated_at=generated_at or datetime.now(UTC), items=items)
 
 
@@ -454,18 +516,24 @@ def build_triage(db: Session | None, tickers: str | None = None) -> TriageRespon
     items: list[TriageItemOut] = []
     saved_tickers: list[str] = []
     for ticker in ticker_list:
+        checked_at = datetime.now(UTC)
         try:
             df = clean_price_data(fetch_price_data(ticker))
-        except (TickerNotFoundError, InsufficientPriceDataError, RateLimitError, MarketDataError):
+        except (TickerNotFoundError, InsufficientPriceDataError, RateLimitError, MarketDataError) as exc:
+            message = _provider_issue_message(exc)
+            update_check_status(db, ticker, "data_issue", message=message, checked_at=checked_at)
+            items.append(_issue_item(ticker, "data_issue", message, watch_notes.get(ticker), checked_at=checked_at))
             continue
         previous = _latest_snapshot(db, ticker)
         news = fetch_ticker_news(ticker)
         item = score_ticker(ticker, df, news, watch_notes.get(ticker))
         item.changes = _snapshot_changes(previous, item)
+        item.last_checked_at = checked_at
         _save_snapshot(db, item)
+        update_check_status(db, ticker, "ok", checked_at=checked_at)
         saved_tickers.append(ticker)
         items.append(item)
 
     _commit_snapshots(db, saved_tickers)
-    items.sort(key=lambda item: (item.attention_score, abs(item.price_change_pct)), reverse=True)
+    items.sort(key=lambda item: (item.status == "ok", item.attention_score or -1, abs(item.price_change_pct or 0.0)), reverse=True)
     return TriageResponse(generated_at=datetime.now(UTC), items=items)
