@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, CircleCheck, CircleDot } from "lucide-react";
 import { fmtPct } from "@/lib/format";
-import type { TriageItem, WatchNote } from "@/lib/types";
+import type { NewsArticle, TriageItem, WatchNote } from "@/lib/types";
 
 type ScoredTriageItem = TriageItem & {
   status: "ok";
@@ -47,6 +47,18 @@ function contribution(impact: number) {
   return `+${impact * 12}`;
 }
 
+function newsContribution(article: NewsArticle) {
+  if (article.score_impact > 0) return `contributed +${article.score_impact}`;
+  if (article.relevance_type === "ignored") return article.relevance_reason;
+  return article.relevance_reason || "display-only: no price/volume confirmation";
+}
+
+function debugValue(value: number | string | null) {
+  if (value === null || value === "") return "n/a";
+  if (typeof value === "number") return value.toFixed(2);
+  return value;
+}
+
 function sentence(value: string) {
   return value.trim().replace(/\.$/, "");
 }
@@ -80,6 +92,88 @@ function scoreDelta(value: number) {
   return String(value);
 }
 
+function NewsDebugDetails({ article }: { article: NewsArticle }) {
+  return (
+    <details className="mt-1 text-[11px] text-muted">
+      <summary className="cursor-pointer select-none hover:text-secondary">Why was this news included?</summary>
+      <div className="mt-1 grid grid-cols-[150px_1fr] gap-x-3 gap-y-1">
+        <span>Relevance type</span>
+        <span>{article.relevance_type}</span>
+        <span>Relevance score</span>
+        <span>{debugValue(article.relevance_score)}</span>
+        <span>Ticker sentiment</span>
+        <span>{debugValue(article.ticker_sentiment_score)} · {debugValue(article.ticker_sentiment_label)}</span>
+        <span>Overall sentiment</span>
+        <span>{debugValue(article.overall_sentiment_score)} · {debugValue(article.overall_sentiment_label)}</span>
+        <span>Score impact</span>
+        <span>{article.is_scoreable ? `+${article.score_impact}` : "+0"}</span>
+        <span>Reason</span>
+        <span>{article.relevance_reason}</span>
+      </div>
+    </details>
+  );
+}
+
+function NewsGroup({ title, articles }: { title: string; articles: NewsArticle[] }) {
+  if (articles.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-1 text-xs font-medium text-primary">{title}</div>
+      <div className="space-y-2">
+        {articles.map((article) => (
+          <div key={`${title}-${article.title}-${article.published_at}`} className="text-xs">
+            <a href={article.url} target="_blank" rel="noreferrer" className="block hover:underline">
+              <span className="font-medium text-primary">{article.category}</span>
+              <span className="text-secondary"> · {article.title}</span>
+              <span className="text-muted"> · {article.source}, {newsLabel(article.published_at)}</span>
+            </a>
+            <div className="mt-1 text-muted">{newsContribution(article)}</div>
+            <NewsDebugDetails article={article} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NewsRelevanceGroups({ item }: { item: ScoredTriageItem }) {
+  const directNews = item.news.filter((article) => article.relevance_type === "direct");
+  const sectorNews = item.news.filter((article) => article.relevance_type === "sector_context");
+  const ignoredNews = item.news.filter((article) => article.relevance_type === "ignored");
+
+  if (item.news_issue_message) {
+    return (
+      <div className="border-t border-border pt-3 text-xs text-muted 2xl:border-t-0 2xl:border-l 2xl:pl-5 2xl:pt-0">
+        {item.news_issue_message}
+      </div>
+    );
+  }
+
+  if (item.news.length === 0) {
+    return (
+      <div className="border-t border-border pt-3 text-xs text-muted 2xl:border-t-0 2xl:border-l 2xl:pl-5 2xl:pt-0">
+        No recent ticker news returned for this check.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border pt-3 2xl:border-t-0 2xl:border-l 2xl:pl-5 2xl:pt-0">
+      <NewsGroup title="Direct news" articles={directNews} />
+      <NewsGroup title="Sector context" articles={sectorNews} />
+      {ignoredNews.length > 0 && (
+        <div>
+          <div className="mb-1 text-xs font-medium text-primary">Filtered out</div>
+          <div className="mb-2 text-xs text-muted">
+            {ignoredNews.length} weak or unrelated article{ignoredNews.length === 1 ? "" : "s"} ignored.
+          </div>
+          <NewsGroup title="Ignored examples" articles={ignoredNews.slice(0, 3)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TriageTable({ items }: { items: TriageItem[] }) {
   if (items.length === 0) {
     return (
@@ -106,8 +200,8 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
         const watchNote = item.watch_note ?? emptyWatchNote;
         const hasWatchNote = Boolean(watchNote.watch_reason || watchNote.main_risk || watchNote.change_my_mind);
         return (
-          <div key={item.ticker} className="grid grid-cols-[92px_110px_minmax(0,1fr)] gap-4 border-b border-border py-4">
-            <div>
+          <div key={item.ticker} className="grid grid-cols-[92px_110px_minmax(0,1fr)] gap-4 border-b border-border py-4 2xl:grid-cols-[92px_110px_minmax(0,1fr)_minmax(460px,0.9fr)]">
+            <div className="min-w-0">
               <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                 {item.ticker}
               </Link>
@@ -183,23 +277,10 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
                 )}
               </div>
               <div className="mt-2 text-xs text-muted">{metricLabel(item)}</div>
-              {item.news.length > 0 && (
-                <div className="mt-3 space-y-1 border-t border-border pt-2">
-                  {item.news.slice(0, 2).map((article) => (
-                    <a
-                      key={`${article.title}-${article.published_at}`}
-                      href={article.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-xs hover:underline"
-                    >
-                      <span className="font-medium text-primary">{article.category}</span>
-                      <span className="text-secondary"> · {article.title}</span>
-                      <span className="text-muted"> · {article.source}, {newsLabel(article.published_at)}</span>
-                    </a>
-                  ))}
-                </div>
-              )}
+            </div>
+
+            <div className="col-span-full min-w-0 2xl:col-span-1">
+              <NewsRelevanceGroups item={item} />
             </div>
 
           </div>
@@ -216,7 +297,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
               const message = item.issue_message ?? "Run Check to create the first snapshot.";
               const status = item.status === "data_issue" ? "Data issue" : "Not checked yet";
               return (
-                <div key={item.ticker} className="grid grid-cols-[92px_130px_minmax(0,1fr)] gap-4 border-b border-border py-4">
+                <div key={item.ticker} className="grid grid-cols-[92px_130px_minmax(0,1fr)] gap-4 border-b border-border py-4 2xl:grid-cols-[92px_130px_minmax(0,720px)_minmax(320px,1fr)]">
                   <div>
                     <Link href={`/research/${item.ticker}`} prefetch={false} className="font-mono text-base font-medium hover:underline">
                       {item.ticker}
@@ -233,7 +314,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
                       </div>
                     )}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm text-secondary">{message}</div>
                     {watchNote.watch_reason && (
                       <div className="mt-2 grid grid-cols-[130px_1fr] gap-3 text-sm">
@@ -242,6 +323,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
                       </div>
                     )}
                   </div>
+                  <div className="hidden 2xl:block" />
                 </div>
               );
             })}

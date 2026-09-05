@@ -42,7 +42,7 @@ export function TodayTriageClient({ initialData }: { initialData: TriageResponse
   }
 
   return (
-    <div className="px-6 py-4">
+    <div className="mx-auto w-full max-w-[1800px] px-6 py-4 2xl:px-8">
       <div className="border-b border-border pb-4">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -69,7 +69,7 @@ export function TodayTriageClient({ initialData }: { initialData: TriageResponse
         </div>
       </div>
 
-      <div className="grid max-w-[820px] grid-cols-3 gap-6 py-5">
+      <div className="grid max-w-[1180px] grid-cols-3 gap-6 py-5">
         <div>
           <div className="label">High</div>
           <div className="mt-1 numeric text-xl">{counts.high}</div>

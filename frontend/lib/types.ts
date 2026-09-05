@@ -143,6 +143,15 @@ export interface NewsArticle {
   published_at: string;
   category: string;
   impact: number;
+  relevance_score: number | null;
+  ticker_sentiment_score: number | null;
+  ticker_sentiment_label: string | null;
+  overall_sentiment_score: number | null;
+  overall_sentiment_label: string | null;
+  relevance_type: "direct" | "sector_context" | "ignored";
+  is_scoreable: boolean;
+  score_impact: number;
+  relevance_reason: string;
 }
 
 export interface WatchNote {
@@ -175,6 +184,7 @@ export interface TriageItem {
   as_of_date: string | null;
   reasons: TriageReason[];
   news: NewsArticle[];
+  news_issue_message: string | null;
   metrics: Record<string, number | string>;
   watch_note?: WatchNote;
   changes: TriageChange | null;
