@@ -592,6 +592,7 @@ def test_triage_snapshot_columns_have_defaults_for_existing_databases() -> None:
     ddl = str(CreateTable(models.TriageSnapshot.__table__).compile(dialect=sqlite.dialect()))
 
     assert "top_news JSON DEFAULT '[]' NOT NULL" in ddl
+    assert "news_counts JSON DEFAULT '{}' NOT NULL" in ddl
     assert "price_change_pct FLOAT DEFAULT 0 NOT NULL" in ddl
     assert "as_of_date DATE DEFAULT CURRENT_DATE NOT NULL" in ddl
     assert "volatility_percentile FLOAT DEFAULT 0 NOT NULL" in ddl
@@ -828,6 +829,12 @@ def test_triage_snapshot_caps_and_preserves_debug_news() -> None:
     assert len([article for article in saved_news if article["relevance_type"] == "ignored"]) == 3
     assert saved_news[0]["score_impact"] == 36
     assert saved_news[0]["ticker_sentiment_label"] == "Somewhat-Bullish"
+    assert payload["news_counts"] == {"scoreable": 7, "sector_context": 7, "ignored": 5}
+
+    restored = triage_service._snapshot_item(payload, None)
+    assert restored.metrics["scoreable_news_count"] == 7
+    assert restored.metrics["sector_context_news_count"] == 7
+    assert restored.metrics["ignored_news_count"] == 5
 
 
 def test_triage_snapshot_prioritises_direct_news_over_sector_context() -> None:
@@ -1104,6 +1111,17 @@ def test_news_relevance_ignores_unrelated_or_background_articles() -> None:
     assert unrelated["score_impact"] == 0
     assert evergreen["relevance_type"] == "ignored"
     assert "evergreen" in evergreen["relevance_reason"]
+
+
+def test_current_direct_article_with_history_keyword_is_not_suppressed() -> None:
+    result = classify_relevance(
+        "AAPL",
+        {"ticker_sentiment": [{"ticker": "AAPL", "relevance_score": "0.9"}]},
+        "Apple cuts guidance after making history with iPhone revenue",
+        "",
+    )
+
+    assert result["relevance_type"] == "direct"
 
 
 def test_news_relevance_unknown_ticker_requires_direct_provider_relevance() -> None:

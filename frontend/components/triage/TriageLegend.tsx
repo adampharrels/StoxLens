@@ -42,7 +42,7 @@ export function TriageLegend() {
           </div>
           <div className="grid grid-cols-2 xl:grid-cols-4">
             {impacts.map((item) => (
-              <div key={item.label} className="border-r border-border px-3 py-2 last:border-r-0">
+              <div key={item.label} className="border-r border-border px-3 py-2 even:border-r-0 xl:even:border-r xl:last:border-r-0">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">{item.label}</span>
                   <span className="numeric text-xs text-muted">{item.value}</span>

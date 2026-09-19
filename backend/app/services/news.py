@@ -90,7 +90,8 @@ TICKER_CONTEXT: dict[str, TickerContext] = {
 
 DIRECT_RELEVANCE_THRESHOLD = 0.35
 SECTOR_RELEVANCE_THRESHOLD = 0.05
-EVERGREEN_TERMS = ("history", "headquarters", "profile", "overview", "encyclopedia", "britannica")
+EVERGREEN_CONTENT_TERMS = ("history", "headquarters", "profile", "overview")
+EVERGREEN_REFERENCE_TERMS = ("encyclopedia", "britannica")
 
 
 def fetch_ticker_news(
@@ -235,21 +236,21 @@ def classify_relevance(ticker: str, item: dict, title: str, summary: str = "") -
     ticker_sentiment_score = _float_or_none(sentiment.get("ticker_sentiment_score")) if sentiment else None
     ticker_sentiment_label = _optional_string(sentiment.get("ticker_sentiment_label")) if sentiment else None
 
-    # Evergreen/background content can mention the company but should not create a trading alert.
-    if _is_evergreen_news(text):
-        return _relevance_result(
-            "ignored",
-            relevance_score,
-            ticker_sentiment_score,
-            ticker_sentiment_label,
-            "ignored: evergreen or background reference",
-        )
-
     context = get_ticker_context(key)
     headline = _normalise_news_text(title)
     headline_mentions_company = _mentions_direct_ticker(headline, key) or _mentions_alias(headline, context.aliases)
     # Direct relevance comes from the provider's requested-ticker metadata; context only enriches sector matches.
     if sentiment is not None and relevance_score is not None and relevance_score >= DIRECT_RELEVANCE_THRESHOLD:
+        # A current article can contain one background word such as "history". Only filter
+        # strong provider matches when the whole article looks like reference material.
+        if _is_evergreen_news(text):
+            return _relevance_result(
+                "ignored",
+                relevance_score,
+                ticker_sentiment_score,
+                ticker_sentiment_label,
+                "ignored: evergreen or background reference",
+            )
         return _relevance_result(
             "direct",
             relevance_score,
@@ -349,7 +350,10 @@ def _optional_string(value: object) -> str | None:
 
 
 def _is_evergreen_news(text: str) -> bool:
-    return any(_normalise_news_text(term) in text for term in EVERGREEN_TERMS)
+    if any(_normalise_news_text(term) in text for term in EVERGREEN_REFERENCE_TERMS):
+        return True
+    content_matches = sum(_normalise_news_text(term) in text for term in EVERGREEN_CONTENT_TERMS)
+    return content_matches >= 2
 
 
 def _mentions_direct_ticker(text: str, ticker: str) -> bool:

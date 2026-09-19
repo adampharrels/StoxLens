@@ -114,6 +114,7 @@ class TriageSnapshot(Base):
     severity: Mapped[str] = mapped_column(String(12))
     top_reasons: Mapped[list[dict[str, str | int]]] = mapped_column(JsonType)
     top_news: Mapped[list[dict[str, object]]] = mapped_column(JsonType, default=list, server_default=text("'[]'"), nullable=False)
+    news_counts: Mapped[dict[str, int]] = mapped_column(JsonType, default=dict, server_default=text("'{}'"), nullable=False)
     news_issue_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[float] = mapped_column(Float)
     price_change_pct: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)

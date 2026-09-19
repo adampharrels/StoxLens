@@ -488,12 +488,18 @@ def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None
 
 
 def _snapshot_payload(item: TriageItemOut) -> dict[str, object]:
+    news_counts = {
+        "scoreable": len([article for article in item.news if article.is_scoreable]),
+        "sector_context": len([article for article in item.news if article.relevance_type == "sector_context"]),
+        "ignored": len([article for article in item.news if article.relevance_type == "ignored"]),
+    }
     return {
         "ticker": item.ticker,
         "attention_score": item.attention_score,
         "severity": item.severity,
         "top_reasons": [_reason_payload(reason) for reason in item.reasons[:3]],
         "top_news": _snapshot_news_payloads(item.news),
+        "news_counts": news_counts,
         "news_issue_message": item.news_issue_message,
         "price": item.price,
         "price_change_pct": item.price_change_pct,
@@ -591,9 +597,16 @@ def _snapshot_item(
                 relevance_reason=str(article.get("relevance_reason", "ignored: relevance was not assessed")),
             )
         )
-    scoreable_news_count = len([article for article in news if article.is_scoreable])
-    sector_context_news_count = len([article for article in news if article.relevance_type == "sector_context"])
-    ignored_news_count = len([article for article in news if article.relevance_type == "ignored"])
+    saved_news_counts = _snapshot_value(snapshot, "news_counts")
+    if isinstance(saved_news_counts, dict):
+        scoreable_news_count = int(saved_news_counts.get("scoreable", 0))
+        sector_context_news_count = int(saved_news_counts.get("sector_context", 0))
+        ignored_news_count = int(saved_news_counts.get("ignored", 0))
+    else:
+        # Legacy snapshots predate uncapped totals, so derive best-effort counts from saved examples.
+        scoreable_news_count = len([article for article in news if article.is_scoreable])
+        sector_context_news_count = len([article for article in news if article.relevance_type == "sector_context"])
+        ignored_news_count = len([article for article in news if article.relevance_type == "ignored"])
 
     return TriageItemOut(
         ticker=ticker,

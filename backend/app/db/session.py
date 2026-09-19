@@ -91,8 +91,10 @@ def _ensure_triage_snapshot_columns() -> None:
     existing = {column["name"] for column in inspector.get_columns("triage_snapshots")}
     json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
     json_default = "'[]'::jsonb" if engine.dialect.name == "postgresql" else "'[]'"
+    json_object_default = "'{}'::jsonb" if engine.dialect.name == "postgresql" else "'{}'"
     statements = {
         "top_news": f"ALTER TABLE triage_snapshots ADD COLUMN top_news {json_type} NOT NULL DEFAULT {json_default}",
+        "news_counts": f"ALTER TABLE triage_snapshots ADD COLUMN news_counts {json_type} NOT NULL DEFAULT {json_object_default}",
         "news_issue_message": "ALTER TABLE triage_snapshots ADD COLUMN news_issue_message TEXT",
         "price_change_pct": "ALTER TABLE triage_snapshots ADD COLUMN price_change_pct FLOAT NOT NULL DEFAULT 0",
         "as_of_date": "ALTER TABLE triage_snapshots ADD COLUMN as_of_date DATE NOT NULL DEFAULT CURRENT_DATE",
