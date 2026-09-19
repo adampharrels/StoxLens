@@ -17,7 +17,7 @@ from app.services import research as research_service
 from app.services import triage as triage_service
 from app.services import watchlist as watchlist_service
 from app.services.market_data import InsufficientPriceDataError, MarketDataError, RateLimitError, TickerNotFoundError
-from app.services.news import NewsArticle, _article_matches_ticker, classify_news
+from app.services.news import NewsArticle, _article_matches_ticker, classify_news, classify_relevance
 from app.services.rate_limit import clear_rate_limits
 
 client = TestClient(app)
@@ -36,6 +36,47 @@ def _prices() -> pd.DataFrame:
             "Adj Close": close,
         },
         index=dates,
+    )
+
+
+def _quiet_prices() -> pd.DataFrame:
+    prices = _prices()
+    prices["Open"] = 100.0
+    prices["High"] = 101.0
+    prices["Low"] = 99.0
+    prices["Close"] = 100.0
+    prices["Adj Close"] = 100.0
+    prices["Volume"] = 1_000_000.0
+    return prices
+
+
+def _news_article(
+    title: str,
+    *,
+    category: str = "guidance",
+    impact: int = 4,
+    relevance_type: str = "direct",
+    is_scoreable: bool = True,
+    score_impact: int = 1,
+    relevance_reason: str = "direct: Alpha Vantage ticker relevance is high",
+) -> NewsArticle:
+    return NewsArticle(
+        title=title,
+        url="https://example.com/news",
+        source="Example",
+        published_at=datetime(2026, 8, 13, 9, 0, tzinfo=UTC),
+        summary="",
+        category=category,
+        impact=impact,
+        relevance_score=0.72 if relevance_type != "ignored" else 0.01,
+        ticker_sentiment_score=0.2 if relevance_type == "direct" else None,
+        ticker_sentiment_label="Somewhat-Bullish" if relevance_type == "direct" else None,
+        overall_sentiment_score=0.1,
+        overall_sentiment_label="Neutral",
+        relevance_type=relevance_type,
+        is_scoreable=is_scoreable,
+        score_impact=score_impact,
+        relevance_reason=relevance_reason,
     )
 
 
@@ -551,6 +592,7 @@ def test_triage_snapshot_columns_have_defaults_for_existing_databases() -> None:
     ddl = str(CreateTable(models.TriageSnapshot.__table__).compile(dialect=sqlite.dialect()))
 
     assert "top_news JSON DEFAULT '[]' NOT NULL" in ddl
+    assert "news_counts JSON DEFAULT '{}' NOT NULL" in ddl
     assert "price_change_pct FLOAT DEFAULT 0 NOT NULL" in ddl
     assert "as_of_date DATE DEFAULT CURRENT_DATE NOT NULL" in ddl
     assert "volatility_percentile FLOAT DEFAULT 0 NOT NULL" in ddl
@@ -571,7 +613,7 @@ def test_triage_ranks_watchlist_attention(monkeypatch) -> None:
 
     monkeypatch.setattr(triage_service, "fetch_price_data", fake_fetch)
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
-    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker, **kwargs: [])
 
     response = client.post("/api/triage/run?tickers=aapl,msft")
     body = response.json()
@@ -658,18 +700,8 @@ def test_triage_run_returns_data_issue_without_fake_snapshot(monkeypatch) -> Non
 
 
 def test_triage_adds_price_relevant_news(monkeypatch) -> None:
-    def fake_news(ticker: str) -> list[NewsArticle]:
-        return [
-            NewsArticle(
-                title=f"{ticker} cuts revenue guidance after weak demand",
-                url="https://example.com/news",
-                source="Example",
-                published_at=datetime(2026, 8, 13, 9, 0, tzinfo=UTC),
-                summary="",
-                category="guidance",
-                impact=4,
-            )
-        ]
+    def fake_news(ticker: str, **kwargs) -> list[NewsArticle]:
+        return [_news_article(f"{ticker} cuts revenue guidance after weak demand")]
 
     monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
@@ -680,23 +712,165 @@ def test_triage_adds_price_relevant_news(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert item["news"][0]["category"] == "guidance"
+    assert item["news"][0]["is_scoreable"] is True
+    assert item["news"][0]["score_impact"] == 36
     assert any(reason["code"] == "news" for reason in item["reasons"])
-    assert item["attention_score"] >= 48
+    assert item["attention_score"] >= 60
+
+
+def test_direct_news_scores_without_price_confirmation() -> None:
+    without_news = triage_service.score_ticker("AAPL", _prices(), [])
+    with_news = triage_service.score_ticker("AAPL", _prices(), [_news_article("AAPL cuts revenue guidance")])
+
+    assert with_news.news[0].relevance_type == "direct"
+    assert with_news.news[0].is_scoreable is True
+    assert with_news.news[0].score_impact == 36
+    assert with_news.attention_score == min(100, without_news.attention_score + 36)
+
+
+def test_sector_context_news_does_not_score_without_confirmation() -> None:
+    item = triage_service.score_ticker(
+        "AAPL",
+        _quiet_prices(),
+        [
+            _news_article(
+                "Broadcom beats expectations as AI chip demand grows",
+                relevance_type="sector_context",
+                is_scoreable=False,
+                score_impact=0,
+                relevance_reason="display-only: related peer or sector theme",
+            )
+        ],
+    )
+
+    assert item.news[0].relevance_type == "sector_context"
+    assert item.news[0].is_scoreable is False
+    assert item.news[0].score_impact == 0
+    assert item.news[0].relevance_reason == "display-only: no price/volume confirmation"
+    assert not any(reason.code == "news" for reason in item.reasons)
+
+
+def test_sector_context_news_scores_with_price_volume_confirmation() -> None:
+    prices = _prices()
+    prices.iloc[-1, prices.columns.get_loc("Volume")] = prices["Volume"].iloc[-1] * 3
+
+    item = triage_service.score_ticker(
+        "AAPL",
+        prices,
+        [
+            _news_article(
+                "Broadcom beats expectations as AI chip demand grows",
+                relevance_type="sector_context",
+                is_scoreable=False,
+                score_impact=0,
+                relevance_reason="display-only: related peer or sector theme",
+            )
+        ],
+    )
+
+    assert item.news[0].relevance_type == "sector_context"
+    assert item.news[0].is_scoreable is True
+    assert item.news[0].score_impact == 12
+    assert "confirmed by price/volume movement" in item.news[0].relevance_reason
+    assert any(reason.code == "news" for reason in item.reasons)
+
+
+def test_ignored_news_never_scores() -> None:
+    item = triage_service.score_ticker(
+        "AAPL",
+        _prices(),
+        [
+            _news_article(
+                "Envista receives analyst upgrade",
+                relevance_type="ignored",
+                is_scoreable=False,
+                score_impact=0,
+                relevance_reason="ignored: low ticker relevance",
+            )
+        ],
+    )
+
+    assert item.news[0].relevance_type == "ignored"
+    assert item.news[0].score_impact == 0
+    assert not any(reason.code == "news" for reason in item.reasons)
+
+
+def test_triage_snapshot_caps_and_preserves_debug_news() -> None:
+    articles = [
+        *[_news_article(f"AAPL direct guidance {index}") for index in range(7)],
+        *[
+            _news_article(
+                f"Broadcom sector context {index}",
+                relevance_type="sector_context",
+                is_scoreable=False,
+                score_impact=0,
+                relevance_reason="display-only: related peer or sector theme",
+            )
+            for index in range(7)
+        ],
+        *[
+            _news_article(
+                f"Ignored article {index}",
+                relevance_type="ignored",
+                is_scoreable=False,
+                score_impact=0,
+                relevance_reason="ignored: low ticker relevance",
+            )
+            for index in range(5)
+        ],
+    ]
+    item = triage_service.score_ticker("AAPL", _quiet_prices(), articles)
+    payload = triage_service._snapshot_payload(item)
+    saved_news = payload["top_news"]
+
+    assert len(saved_news) == 13
+    assert len([article for article in saved_news if article["is_scoreable"]]) == 5
+    assert len([article for article in saved_news if article["relevance_type"] == "sector_context"]) == 5
+    assert len([article for article in saved_news if article["relevance_type"] == "ignored"]) == 3
+    assert saved_news[0]["score_impact"] == 36
+    assert saved_news[0]["ticker_sentiment_label"] == "Somewhat-Bullish"
+    assert payload["news_counts"] == {"scoreable": 7, "sector_context": 7, "ignored": 5}
+
+    restored = triage_service._snapshot_item(payload, None)
+    assert restored.metrics["scoreable_news_count"] == 7
+    assert restored.metrics["sector_context_news_count"] == 7
+    assert restored.metrics["ignored_news_count"] == 5
+
+
+def test_triage_snapshot_prioritises_direct_news_over_sector_context() -> None:
+    prices = _prices()
+    prices.iloc[-1, prices.columns.get_loc("Volume")] = prices["Volume"].iloc[-1] * 3
+    articles = [
+        *[
+            _news_article(
+                f"Sector context {index}",
+                relevance_type="sector_context",
+                is_scoreable=True,
+                score_impact=12,
+                relevance_reason="display-only: related peer or sector theme; confirmed by price/volume movement",
+            )
+            for index in range(6)
+        ],
+        _news_article(
+            "PLTR appoints new executive",
+            category="management",
+            impact=2,
+            relevance_type="direct",
+            is_scoreable=True,
+            score_impact=12,
+            relevance_reason="direct: target ticker relevance is high and headline mentions the company",
+        ),
+    ]
+    item = triage_service.score_ticker("PLTR", prices, articles)
+    saved_news = triage_service._snapshot_payload(item)["top_news"]
+
+    assert len([article for article in saved_news if article["is_scoreable"]]) == 5
+    assert any(article["title"] == "PLTR appoints new executive" for article in saved_news)
 
 
 def test_get_triage_returns_news_saved_by_run(monkeypatch) -> None:
-    def fake_news(ticker: str) -> list[NewsArticle]:
-        return [
-            NewsArticle(
-                title=f"{ticker} raises revenue guidance",
-                url="https://example.com/news",
-                source="Example",
-                published_at=datetime(2026, 8, 13, 9, 0, tzinfo=UTC),
-                summary="",
-                category="guidance",
-                impact=4,
-            )
-        ]
+    def fake_news(ticker: str, **kwargs) -> list[NewsArticle]:
+        return [_news_article(f"{ticker} raises revenue guidance")]
 
     triage_service._memory_triage_snapshots.clear()
     monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
@@ -712,8 +886,37 @@ def test_get_triage_returns_news_saved_by_run(monkeypatch) -> None:
         assert read_response.status_code == 200
         assert read_item["news"][0]["category"] == "guidance"
         assert read_item["news"][0]["title"] == "AAPL raises revenue guidance"
+        assert read_item["news"][0]["relevance_type"] == "direct"
+        assert read_item["news"][0]["score_impact"] == 36
         assert read_item["price_change_pct"] == run_response.json()["items"][0]["price_change_pct"]
         assert read_item["as_of_date"] == run_response.json()["items"][0]["as_of_date"]
+        assert read_item["news_issue_message"] is None
+    finally:
+        triage_service._memory_triage_snapshots.clear()
+
+
+def test_run_triage_surfaces_news_provider_issue(monkeypatch) -> None:
+    triage_service._memory_triage_snapshots.clear()
+    monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
+    monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
+
+    def rate_limited_news(ticker: str, **kwargs) -> list[NewsArticle]:
+        raise RateLimitError("free api requests reached")
+
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", rate_limited_news)
+
+    try:
+        run_response = client.post("/api/triage/run?tickers=msft")
+        read_response = client.get("/api/triage?tickers=msft")
+        run_item = run_response.json()["items"][0]
+        read_item = read_response.json()["items"][0]
+
+        assert run_response.status_code == 200
+        assert run_item["status"] == "ok"
+        assert run_item["news"] == []
+        assert run_item["news_issue_message"] == "News provider rate limit was reached for this check."
+        assert read_response.status_code == 200
+        assert read_item["news_issue_message"] == run_item["news_issue_message"]
     finally:
         triage_service._memory_triage_snapshots.clear()
 
@@ -721,7 +924,7 @@ def test_get_triage_returns_news_saved_by_run(monkeypatch) -> None:
 def test_triage_includes_watch_notes(monkeypatch) -> None:
     monkeypatch.setattr(triage_service, "fetch_price_data", lambda ticker: _prices())
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
-    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker, **kwargs: [])
     monkeypatch.setattr(
         triage_service,
         "list_watchlist",
@@ -760,7 +963,7 @@ def test_triage_compares_against_previous_snapshot(monkeypatch) -> None:
     triage_service._memory_triage_snapshots.clear()
     monkeypatch.setattr(triage_service, "fetch_price_data", fake_fetch)
     monkeypatch.setattr(triage_service, "clean_price_data", lambda df: df)
-    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker: [])
+    monkeypatch.setattr(triage_service, "fetch_ticker_news", lambda ticker, **kwargs: [])
 
     try:
         first = client.post("/api/triage/run?tickers=msft").json()["items"][0]
@@ -855,6 +1058,91 @@ def test_news_filter_requires_ticker_relevance() -> None:
     assert not _article_matches_ticker({"ticker_sentiment": [{"ticker": "IBM"}], "title": "IBM fund filing"}, "NVDA")
 
 
+def test_news_relevance_classifies_direct_ticker_articles() -> None:
+    result = classify_relevance(
+        "AAPL",
+        {
+            "ticker_sentiment": [
+                {
+                    "ticker": "AAPL",
+                    "relevance_score": "0.84",
+                    "ticker_sentiment_score": "0.31",
+                    "ticker_sentiment_label": "Bullish",
+                }
+            ]
+        },
+        "Apple raises iPhone revenue guidance",
+        "",
+    )
+
+    assert result["relevance_type"] == "direct"
+    assert result["is_scoreable"] is False
+    assert result["score_impact"] == 0
+    assert result["relevance_score"] == 0.84
+    assert result["ticker_sentiment_score"] == 0.31
+    assert result["ticker_sentiment_label"] == "Bullish"
+
+
+def test_news_relevance_classifies_sector_context_articles() -> None:
+    result = classify_relevance(
+        "AAPL",
+        {"ticker_sentiment": [{"ticker": "AVGO", "relevance_score": "0.63"}]},
+        "Broadcom beats expectations as AI chip demand grows",
+        "",
+    )
+
+    assert result["relevance_type"] == "sector_context"
+    assert result["is_scoreable"] is False
+    assert result["score_impact"] == 0
+    assert "display-only" in result["relevance_reason"]
+
+
+def test_news_relevance_ignores_unrelated_or_background_articles() -> None:
+    unrelated = classify_relevance("AAPL", {"ticker_sentiment": [{"ticker": "ENV"}]}, "Envista receives analyst upgrade", "")
+    evergreen = classify_relevance(
+        "AAPL",
+        {"ticker_sentiment": [{"ticker": "AAPL", "relevance_score": "0.9"}]},
+        "Apple Inc. history, products, and headquarters",
+        "",
+    )
+
+    assert unrelated["relevance_type"] == "ignored"
+    assert unrelated["is_scoreable"] is False
+    assert unrelated["score_impact"] == 0
+    assert evergreen["relevance_type"] == "ignored"
+    assert "evergreen" in evergreen["relevance_reason"]
+
+
+def test_current_direct_article_with_history_keyword_is_not_suppressed() -> None:
+    result = classify_relevance(
+        "AAPL",
+        {"ticker_sentiment": [{"ticker": "AAPL", "relevance_score": "0.9"}]},
+        "Apple cuts guidance after making history with iPhone revenue",
+        "",
+    )
+
+    assert result["relevance_type"] == "direct"
+
+
+def test_news_relevance_unknown_ticker_requires_direct_provider_relevance() -> None:
+    weak_unknown = classify_relevance(
+        "XYZ",
+        {"ticker_sentiment": [{"ticker": "ABC", "relevance_score": "0.7"}]},
+        "Semiconductor demand improves across the sector",
+        "",
+    )
+    direct_unknown = classify_relevance(
+        "XYZ",
+        {"ticker_sentiment": [{"ticker": "XYZ", "relevance_score": "0.61"}]},
+        "XYZ reports quarterly results",
+        "",
+    )
+
+    assert weak_unknown["relevance_type"] == "ignored"
+    assert "no ticker context" in weak_unknown["relevance_reason"]
+    assert direct_unknown["relevance_type"] == "direct"
+
+
 def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
     def fake_news(ticker: str, *, limit: int = 5, lookback=None, raise_on_error: bool = False) -> list[NewsArticle]:
         return [
@@ -866,6 +1154,15 @@ def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
                 summary="",
                 category="analyst",
                 impact=2,
+                relevance_score=0.72,
+                ticker_sentiment_score=0.2,
+                ticker_sentiment_label="Somewhat-Bullish",
+                overall_sentiment_score=0.1,
+                overall_sentiment_label="Neutral",
+                relevance_type="direct",
+                is_scoreable=True,
+                score_impact=12,
+                relevance_reason="direct: Alpha Vantage ticker relevance is high",
             )
         ][:limit]
 
@@ -876,6 +1173,10 @@ def test_news_endpoint_returns_classified_articles(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()[0]["category"] == "analyst"
     assert response.json()[0]["impact"] == 2
+    assert response.json()[0]["relevance_type"] == "direct"
+    assert response.json()[0]["is_scoreable"] is True
+    assert response.json()[0]["score_impact"] == 12
+    assert response.json()[0]["ticker_sentiment_label"] == "Somewhat-Bullish"
 
 
 def test_news_endpoint_reports_missing_provider_key(monkeypatch) -> None:
@@ -940,5 +1241,21 @@ def test_news_cache_prunes_expired_lookback_entries(monkeypatch) -> None:
 
         assert "AAPL:3600" not in news_service._news_cache
         assert "MSFT:7200" in news_service._news_cache
+    finally:
+        news_service._news_cache.clear()
+
+
+def test_news_fetch_errors_are_not_cached_as_empty_results(monkeypatch) -> None:
+    news_service._news_cache.clear()
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
+
+    def rate_limited(ticker: str, *, lookback) -> list[NewsArticle]:
+        raise RateLimitError("free api requests reached")
+
+    monkeypatch.setattr(news_service, "_fetch_alphavantage_news", rate_limited)
+
+    try:
+        assert news_service.fetch_ticker_news("aapl") == []
+        assert news_service._news_cache == {}
     finally:
         news_service._news_cache.clear()

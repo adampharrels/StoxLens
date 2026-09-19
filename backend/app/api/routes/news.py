@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.schemas.triage import NewsArticleOut
 from app.services.market_data import RateLimitError
 from app.services.news import NewsUnavailableError, fetch_ticker_news
+from app.services.triage import _news_to_schema
 
 router = APIRouter()
 
@@ -21,14 +22,4 @@ def get_ticker_news(
         raise HTTPException(status_code=429, detail="News provider rate limit reached. Try again later.") from exc
     except NewsUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return [
-        NewsArticleOut(
-            title=article.title,
-            url=article.url,
-            source=article.source,
-            published_at=article.published_at,
-            category=article.category,
-            impact=article.impact,
-        )
-        for article in articles
-    ]
+    return [_news_to_schema(article) for article in articles]

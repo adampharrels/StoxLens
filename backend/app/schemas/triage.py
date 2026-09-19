@@ -17,7 +17,16 @@ class NewsArticleOut(BaseModel):
     source: str
     published_at: datetime
     category: str
-    impact: int = Field(ge=1, le=4)
+    impact: int = Field(ge=0, le=4)
+    relevance_score: float | None = None
+    ticker_sentiment_score: float | None = None
+    ticker_sentiment_label: str | None = None
+    overall_sentiment_score: float | None = None
+    overall_sentiment_label: str | None = None
+    relevance_type: Literal["direct", "sector_context", "ignored"] = "ignored"
+    is_scoreable: bool = False
+    score_impact: int = Field(default=0, ge=0, le=48)
+    relevance_reason: str = "ignored: relevance was not assessed"
 
 
 class WatchNoteOut(BaseModel):
@@ -50,6 +59,7 @@ class TriageItemOut(BaseModel):
     as_of_date: date | None = None
     reasons: list[TriageReasonOut] = Field(default_factory=list)
     news: list[NewsArticleOut] = Field(default_factory=list)
+    news_issue_message: str | None = None
     metrics: dict[str, float | int | str] = Field(default_factory=dict)
     watch_note: WatchNoteOut
     changes: TriageChangeOut | None = None

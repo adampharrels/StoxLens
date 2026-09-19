@@ -15,9 +15,9 @@ export function Topbar() {
   }
 
   return (
-    <header className="flex h-11 items-center border-b border-border bg-page px-4">
+    <header className="flex h-11 items-center gap-4 border-b border-border bg-page px-4">
       <div className="w-[184px] shrink-0 text-base font-semibold">StoxLens</div>
-      <form onSubmit={submit} className="relative max-w-[520px] flex-1">
+      <form onSubmit={submit} className="relative max-w-[760px] flex-1">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
         <input
           name="ticker"
@@ -26,7 +26,7 @@ export function Topbar() {
           className="h-7 w-full rounded-none border border-border bg-surface pl-8 pr-2 text-base text-primary placeholder:text-muted"
         />
       </form>
-      <div className="ml-auto pl-4 text-xs text-muted">On-demand market data</div>
+      <div className="ml-auto shrink-0 text-xs text-muted">On-demand market data</div>
     </header>
   );
 }

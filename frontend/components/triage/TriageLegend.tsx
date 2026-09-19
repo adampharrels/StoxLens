@@ -15,7 +15,7 @@ const impacts = [
 
 export function TriageLegend() {
   return (
-    <div className="mb-5 grid max-w-[980px] grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-6 border-t border-border pt-4">
+    <div className="mb-5 grid max-w-[1180px] grid-cols-1 gap-6 border-t border-border pt-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)]">
       <div>
         <div className="label mb-2">Severity</div>
         <div className="grid grid-cols-3 gap-3">
@@ -38,11 +38,11 @@ export function TriageLegend() {
         <div className="label mb-2">Score</div>
         <div className="border border-border">
           <div className="border-b border-border px-3 py-2 text-sm text-secondary">
-            Score = trigger impact total x 12, capped at 100.
+            Score = signal impact plus news points, capped at 100.
           </div>
-          <div className="grid grid-cols-4">
+          <div className="grid grid-cols-2 xl:grid-cols-4">
             {impacts.map((item) => (
-              <div key={item.label} className="border-r border-border px-3 py-2 last:border-r-0">
+              <div key={item.label} className="border-r border-border px-3 py-2 even:border-r-0 xl:even:border-r xl:last:border-r-0">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">{item.label}</span>
                   <span className="numeric text-xs text-muted">{item.value}</span>

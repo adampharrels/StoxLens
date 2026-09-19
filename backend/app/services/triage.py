@@ -16,12 +16,27 @@ from app.services.market_data import (
     clean_price_data,
     fetch_price_data,
 )
-from app.services.news import NewsArticle, fetch_ticker_news
+from app.services.news import NewsArticle, NewsUnavailableError, fetch_ticker_news
 from app.services.signals import calculate_signals
 from app.services.watchlist import list_watchlist, update_check_status
 
 _memory_triage_snapshots: dict[str, list[dict[str, object]]] = {}
 TRIAGE_SNAPSHOT_RETENTION = 20
+MAX_SCOREABLE_NEWS_SNAPSHOT = 5
+MAX_SECTOR_NEWS_SNAPSHOT = 5
+MAX_IGNORED_NEWS_SNAPSHOT = 3
+NEWS_SCORE_CAP = 48
+STRONG_RELEVANCE_THRESHOLD = 0.50
+DIRECT_CATEGORY_SCORE_CAPS = {
+    "earnings": 36,
+    "guidance": 36,
+    "regulatory": 36,
+    "m&a": 24,
+    "analyst": 12,
+    "capital return": 12,
+    "management": 12,
+    "product": 12,
+}
 
 
 def _pct(value: float) -> str:
@@ -43,7 +58,7 @@ def _reason_payload(reason: TriageReasonOut) -> dict[str, str | int]:
     return {"code": reason.code, "label": reason.label, "detail": reason.detail, "impact": reason.impact}
 
 
-def _news_payload(article: NewsArticleOut) -> dict[str, str | int]:
+def _news_payload(article: NewsArticleOut) -> dict[str, object]:
     return {
         "title": article.title,
         "url": article.url,
@@ -51,7 +66,35 @@ def _news_payload(article: NewsArticleOut) -> dict[str, str | int]:
         "published_at": article.published_at.isoformat(),
         "category": article.category,
         "impact": article.impact,
+        "relevance_score": article.relevance_score,
+        "ticker_sentiment_score": article.ticker_sentiment_score,
+        "ticker_sentiment_label": article.ticker_sentiment_label,
+        "overall_sentiment_score": article.overall_sentiment_score,
+        "overall_sentiment_label": article.overall_sentiment_label,
+        "relevance_type": article.relevance_type,
+        "is_scoreable": article.is_scoreable,
+        "score_impact": article.score_impact,
+        "relevance_reason": article.relevance_reason,
     }
+
+
+def _snapshot_news_payloads(articles: list[NewsArticleOut]) -> list[dict[str, object]]:
+    # Keep the most decision-relevant articles first; direct company news should not be displaced by sector context.
+    scoreable = sorted(
+        [article for article in articles if article.is_scoreable],
+        key=lambda article: (
+            article.relevance_type == "direct",
+            article.score_impact,
+            article.relevance_score or 0.0,
+            article.published_at,
+        ),
+        reverse=True,
+    )[:MAX_SCOREABLE_NEWS_SNAPSHOT]
+    sector = [article for article in articles if article.relevance_type == "sector_context" and not article.is_scoreable][
+        :MAX_SECTOR_NEWS_SNAPSHOT
+    ]
+    ignored = [article for article in articles if article.relevance_type == "ignored"][:MAX_IGNORED_NEWS_SNAPSHOT]
+    return [_news_payload(article) for article in [*scoreable, *sector, *ignored]]
 
 
 def _news_to_schema(article: NewsArticle) -> NewsArticleOut:
@@ -62,7 +105,82 @@ def _news_to_schema(article: NewsArticle) -> NewsArticleOut:
         published_at=article.published_at,
         category=article.category,
         impact=article.impact,
+        relevance_score=article.relevance_score,
+        ticker_sentiment_score=article.ticker_sentiment_score,
+        ticker_sentiment_label=article.ticker_sentiment_label,
+        overall_sentiment_score=article.overall_sentiment_score,
+        overall_sentiment_label=article.overall_sentiment_label,
+        relevance_type=article.relevance_type,  # type: ignore[arg-type]
+        is_scoreable=article.is_scoreable,
+        score_impact=article.score_impact,
+        relevance_reason=article.relevance_reason,
     )
+
+
+def _scoring_label(article: NewsArticleOut) -> str:
+    if article.score_impact > 0:
+        return f"contributed +{article.score_impact}"
+    if article.relevance_type == "ignored":
+        return article.relevance_reason
+    return "display-only: no price/volume confirmation"
+
+
+def _has_sector_confirmation(
+    *,
+    price_change_pct: float,
+    abnormal_move_threshold: float,
+    volume_ratio: float,
+    volatility_30d: float,
+    volatility_percentile: float,
+    reasons: list[TriageReasonOut],
+) -> bool:
+    technical_codes = {"below_50d", "above_50d", "below_200d", "above_200d", "volume_surge", "abnormal_move", "vol_spike"}
+    return (
+        (abnormal_move_threshold > 0 and abs(price_change_pct) >= abnormal_move_threshold)
+        or volume_ratio >= 1.5
+        or (volatility_30d > 0 and volatility_percentile >= 0.9)
+        or any(reason.code in technical_codes for reason in reasons)
+    )
+
+
+def _score_news_articles(news_items: list[NewsArticle], sector_confirmed: bool) -> list[NewsArticleOut]:
+    scored: list[NewsArticleOut] = []
+    for article in news_items:
+        item = _news_to_schema(article)
+        score_impact = 0
+        is_scoreable = False
+        relevance_reason = item.relevance_reason
+
+        if item.relevance_type == "direct" and item.impact > 0:
+            score_impact = DIRECT_CATEGORY_SCORE_CAPS.get(item.category, 0)
+            low_relevance = item.relevance_score is None or item.relevance_score < STRONG_RELEVANCE_THRESHOLD
+            neutral_or_unknown = (
+                item.ticker_sentiment_score is None
+                or abs(item.ticker_sentiment_score) <= 0.15
+                or (item.ticker_sentiment_label or "").lower() == "neutral"
+            )
+            if low_relevance:
+                score_impact = min(score_impact, 12)
+                relevance_reason += "; limited contribution: low ticker relevance"
+            if neutral_or_unknown:
+                score_impact = min(score_impact, 12)
+                relevance_reason += "; limited contribution: neutral or unavailable ticker sentiment"
+            is_scoreable = score_impact > 0
+        elif item.relevance_type == "sector_context":
+            if sector_confirmed and item.impact > 0:
+                # Sector news explains a move only after the watched ticker reacts in the same run.
+                score_impact = 12
+                is_scoreable = True
+                relevance_reason = f"{item.relevance_reason}; confirmed by price/volume movement"
+            else:
+                relevance_reason = "display-only: no price/volume confirmation"
+
+        scored.append(
+            item.model_copy(
+                update={"is_scoreable": is_scoreable, "score_impact": score_impact, "relevance_reason": relevance_reason}
+            )
+        )
+    return scored
 
 
 def _watch_note(ticker: str, item: dict[str, object] | None = None) -> WatchNoteOut:
@@ -99,6 +217,14 @@ def _provider_issue_message(exc: Exception) -> str:
     if isinstance(exc, TickerNotFoundError):
         return "Ticker could not be found or is not supported."
     return "Unable to check this ticker right now."
+
+
+def _news_issue_message(exc: Exception) -> str:
+    if isinstance(exc, RateLimitError):
+        return "News provider rate limit was reached for this check."
+    if isinstance(exc, NewsUnavailableError):
+        return str(exc)
+    return "News provider was unavailable for this check."
 
 
 def score_ticker(
@@ -153,7 +279,7 @@ def score_ticker(
     elif rsi <= 30:
         reasons.append(_reason("rsi_oversold", "RSI oversold", f"RSI is compressed at {rsi:.1f}.", 3))
 
-    if vol_percentile >= 0.9:
+    if vol_current > 0 and vol_percentile >= 0.9:
         reasons.append(_reason("vol_spike", "Volatility spike", f"30-day volatility is in the {_pct(vol_percentile)} percentile.", 3))
 
     if float(signals["max_drawdown"]) <= -0.2:
@@ -169,10 +295,22 @@ def score_ticker(
         reasons.append(_reason("data_quality", "Data quality", "Market data quality is below the preferred threshold.", 2))
 
     news_items = news or []
-    news_impact = min(4, sum(article.impact for article in news_items[:3]))
+    sector_confirmed = _has_sector_confirmation(
+        price_change_pct=price_change_pct,
+        abnormal_move_threshold=normal_move,
+        volume_ratio=volume_ratio,
+        volatility_30d=vol_current,
+        volatility_percentile=vol_percentile,
+        reasons=reasons,
+    )
+    scored_news = _score_news_articles(news_items, sector_confirmed)
+    scoreable_news = [article for article in scored_news if article.is_scoreable and article.score_impact > 0]
+    news_score = min(NEWS_SCORE_CAP, sum(article.score_impact for article in scoreable_news[:3]))
+    news_impact = news_score // 12
     if news_impact > 0:
-        categories = ", ".join(dict.fromkeys(article.category for article in news_items[:3]))
-        reasons.append(_reason("news", "Price-relevant news", f"Recent {categories} news should be reviewed.", news_impact))
+        categories = ", ".join(dict.fromkeys(article.category for article in scoreable_news[:3]))
+        labels = ", ".join(_scoring_label(article) for article in scoreable_news[:3])
+        reasons.append(_reason("news", "Price-relevant news", f"Recent {categories} news should be reviewed ({labels}).", news_impact))
 
     score = min(100, sum(reason.impact for reason in reasons) * 12)
     severity = "High" if score >= 60 else "Medium" if score >= 30 else "Low"
@@ -186,8 +324,12 @@ def score_ticker(
         "rsi": rsi,
         "volume": latest_volume,
         "volume_ratio": volume_ratio,
+        "abnormal_move_threshold": normal_move,
         "ma_signal": str(signals["ma_signal"]),
         "data_quality_score": int(signals["data_quality_score"]),
+        "scoreable_news_count": len(scoreable_news),
+        "sector_context_news_count": len([article for article in scored_news if article.relevance_type == "sector_context"]),
+        "ignored_news_count": len([article for article in scored_news if article.relevance_type == "ignored"]),
     }
 
     return TriageItemOut(
@@ -199,7 +341,7 @@ def score_ticker(
         price_change_pct=price_change_pct,
         as_of_date=df.index[-1].date(),
         reasons=reasons,
-        news=[_news_to_schema(article) for article in news_items],
+        news=scored_news,
         metrics=metrics,
         watch_note=_watch_note(ticker, watch_note),
     )
@@ -346,12 +488,19 @@ def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None
 
 
 def _snapshot_payload(item: TriageItemOut) -> dict[str, object]:
+    news_counts = {
+        "scoreable": len([article for article in item.news if article.is_scoreable]),
+        "sector_context": len([article for article in item.news if article.relevance_type == "sector_context"]),
+        "ignored": len([article for article in item.news if article.relevance_type == "ignored"]),
+    }
     return {
         "ticker": item.ticker,
         "attention_score": item.attention_score,
         "severity": item.severity,
         "top_reasons": [_reason_payload(reason) for reason in item.reasons[:3]],
-        "top_news": [_news_payload(article) for article in item.news[:3]],
+        "top_news": _snapshot_news_payloads(item.news),
+        "news_counts": news_counts,
+        "news_issue_message": item.news_issue_message,
         "price": item.price,
         "price_change_pct": item.price_change_pct,
         "as_of_date": item.as_of_date,
@@ -436,9 +585,28 @@ def _snapshot_item(
                 source=str(article.get("source", "News")),
                 published_at=published_at,
                 category=str(article.get("category", "")),
-                impact=int(article.get("impact", 1)),
+                impact=int(article.get("impact", 0)),
+                relevance_score=float(article["relevance_score"]) if article.get("relevance_score") is not None else None,
+                ticker_sentiment_score=float(article["ticker_sentiment_score"]) if article.get("ticker_sentiment_score") is not None else None,
+                ticker_sentiment_label=str(article.get("ticker_sentiment_label")) if article.get("ticker_sentiment_label") is not None else None,
+                overall_sentiment_score=float(article["overall_sentiment_score"]) if article.get("overall_sentiment_score") is not None else None,
+                overall_sentiment_label=str(article.get("overall_sentiment_label")) if article.get("overall_sentiment_label") is not None else None,
+                relevance_type=str(article.get("relevance_type", "ignored")),  # type: ignore[arg-type]
+                is_scoreable=bool(article.get("is_scoreable", False)),
+                score_impact=int(article.get("score_impact", 0)),
+                relevance_reason=str(article.get("relevance_reason", "ignored: relevance was not assessed")),
             )
         )
+    saved_news_counts = _snapshot_value(snapshot, "news_counts")
+    if isinstance(saved_news_counts, dict):
+        scoreable_news_count = int(saved_news_counts.get("scoreable", 0))
+        sector_context_news_count = int(saved_news_counts.get("sector_context", 0))
+        ignored_news_count = int(saved_news_counts.get("ignored", 0))
+    else:
+        # Legacy snapshots predate uncapped totals, so derive best-effort counts from saved examples.
+        scoreable_news_count = len([article for article in news if article.is_scoreable])
+        sector_context_news_count = len([article for article in news if article.relevance_type == "sector_context"])
+        ignored_news_count = len([article for article in news if article.relevance_type == "ignored"])
 
     return TriageItemOut(
         ticker=ticker,
@@ -449,12 +617,16 @@ def _snapshot_item(
         as_of_date=_snapshot_date(_snapshot_value(snapshot, "as_of_date"), generated_at.date()),
         reasons=reasons,
         news=news,
+        news_issue_message=str(_snapshot_value(snapshot, "news_issue_message") or "") or None,
         metrics={
             "volume": float(_snapshot_value(snapshot, "volume") or 0.0),
             "volatility_percentile": float(_snapshot_value(snapshot, "volatility_percentile") or 0.0),
             "volume_ratio": float(_snapshot_value(snapshot, "volume_ratio") or 1.0),
             "rsi": float(_snapshot_value(snapshot, "rsi") or 0.0),
             "ma_signal": str(_snapshot_value(snapshot, "moving_average_status") or ""),
+            "scoreable_news_count": scoreable_news_count,
+            "sector_context_news_count": sector_context_news_count,
+            "ignored_news_count": ignored_news_count,
         },
         watch_note=_watch_note(ticker, watch_note),
         last_checked_at=generated_at,
@@ -525,8 +697,15 @@ def build_triage(db: Session | None, tickers: str | None = None) -> TriageRespon
             items.append(_issue_item(ticker, "data_issue", message, watch_notes.get(ticker), checked_at=checked_at))
             continue
         previous = _latest_snapshot(db, ticker)
-        news = fetch_ticker_news(ticker)
+        news_issue_message = None
+        try:
+            news = fetch_ticker_news(ticker, limit=20, raise_on_error=True)
+        except (RateLimitError, NewsUnavailableError, MarketDataError) as exc:
+            # Price triage remains useful when news is down; surface that gap instead of looking empty.
+            news = []
+            news_issue_message = _news_issue_message(exc)
         item = score_ticker(ticker, df, news, watch_notes.get(ticker))
+        item.news_issue_message = news_issue_message
         item.changes = _snapshot_changes(previous, item)
         item.last_checked_at = checked_at
         _save_snapshot(db, item)

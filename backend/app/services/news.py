@@ -10,6 +10,15 @@ _news_cache: dict[str, tuple[datetime, list["NewsArticle"]]] = {}
 
 
 @dataclass
+class TickerContext:
+    ticker: str
+    aliases: tuple[str, ...] = ()
+    themes: tuple[str, ...] = ()
+    peers: tuple[str, ...] = ()
+    allow_sector_guessing: bool = False
+
+
+@dataclass
 class NewsArticle:
     title: str
     url: str
@@ -18,6 +27,15 @@ class NewsArticle:
     summary: str
     category: str
     impact: int
+    relevance_score: float | None = None
+    ticker_sentiment_score: float | None = None
+    ticker_sentiment_label: str | None = None
+    overall_sentiment_score: float | None = None
+    overall_sentiment_label: str | None = None
+    relevance_type: str = "ignored"
+    is_scoreable: bool = False
+    score_impact: int = 0
+    relevance_reason: str = "ignored: relevance was not assessed"
 
 
 class NewsUnavailableError(RuntimeError):
@@ -38,6 +56,42 @@ KEYWORD_RULES: list[tuple[str, int, tuple[str, ...]]] = [
     ("management", 2, ("ceo", "cfo", "resigns", "steps down", "appointed", "layoffs", "job cuts")),
     ("product", 1, ("launch", "unveils", "announces", "partnership", "contract", "order")),
 ]
+
+TICKER_CONTEXT: dict[str, TickerContext] = {
+    "AAPL": TickerContext(
+        ticker="AAPL",
+        aliases=("apple", "iphone", "mac", "app store"),
+        themes=("smartphones", "consumer electronics", "ai devices", "semiconductors"),
+        peers=("MSFT", "GOOGL", "META", "NVDA", "QCOM", "AVGO"),
+        allow_sector_guessing=True,
+    ),
+    "MSFT": TickerContext(
+        ticker="MSFT",
+        aliases=("microsoft", "azure", "office", "windows", "copilot"),
+        themes=("cloud", "enterprise software", "ai infrastructure", "gaming"),
+        peers=("AAPL", "GOOGL", "AMZN", "ORCL", "CRM", "NVDA"),
+        allow_sector_guessing=True,
+    ),
+    "NVDA": TickerContext(
+        ticker="NVDA",
+        aliases=("nvidia", "geforce", "cuda", "blackwell", "ai chips"),
+        themes=("semiconductors", "ai infrastructure", "data centers", "gpu"),
+        peers=("AMD", "AVGO", "QCOM", "INTC", "TSM", "MSFT"),
+        allow_sector_guessing=True,
+    ),
+    "PLTR": TickerContext(
+        ticker="PLTR",
+        aliases=("palantir", "foundry", "gotham", "aip"),
+        themes=("defense software", "government contracts", "enterprise ai", "data analytics"),
+        peers=("MSFT", "SNOW", "CRM", "ORCL", "NOW"),
+        allow_sector_guessing=True,
+    ),
+}
+
+DIRECT_RELEVANCE_THRESHOLD = 0.35
+SECTOR_RELEVANCE_THRESHOLD = 0.05
+EVERGREEN_CONTENT_TERMS = ("history", "headquarters", "profile", "overview")
+EVERGREEN_REFERENCE_TERMS = ("encyclopedia", "britannica")
 
 
 def fetch_ticker_news(
@@ -62,14 +116,14 @@ def fetch_ticker_news(
         # Triage should still work without news, but the direct news endpoint can opt into visible errors.
         if raise_on_error:
             raise
-        articles = []
+        return []
     except MarketDataError as exc:
         # Keep Today resilient; callers that need diagnostics pass raise_on_error=True.
         if raise_on_error:
             if isinstance(exc, NewsProviderConfigError):
                 raise NewsUnavailableError(str(exc)) from exc
             raise NewsUnavailableError("News provider is unavailable. Try again later.") from exc
-        articles = []
+        return []
 
     _news_cache[cache_key] = (now, articles)
     return articles[:limit]
@@ -129,9 +183,6 @@ def _fetch_alphavantage_news(ticker: str, *, lookback: timedelta) -> list[NewsAr
     cutoff = datetime.now(UTC) - lookback
     articles: list[NewsArticle] = []
     for item in payload.get("feed", []):
-        if not _article_matches_ticker(item, ticker):
-            continue
-
         published_at = _parse_alphavantage_time(str(item.get("time_published", "")))
         if published_at is None or published_at < cutoff:
             continue
@@ -142,22 +193,182 @@ def _fetch_alphavantage_news(ticker: str, *, lookback: timedelta) -> list[NewsAr
             continue
 
         category, impact = classify_news(title, summary)
-        if impact <= 0:
-            continue
-
-        articles.append(
-            NewsArticle(
-                title=title,
-                url=str(item.get("url") or ""),
-                source=str(item.get("source") or "News"),
-                published_at=published_at,
-                summary=summary,
-                category=category,
-                impact=impact,
-            )
-        )
+        articles.append(_news_article_from_payload(ticker, item, title, summary, published_at, category, impact))
 
     return articles
+
+
+def _news_article_from_payload(
+    ticker: str,
+    item: dict,
+    title: str,
+    summary: str,
+    published_at: datetime,
+    category: str,
+    impact: int,
+) -> NewsArticle:
+    relevance = classify_relevance(ticker, item, title, summary)
+    return NewsArticle(
+        title=title,
+        url=str(item.get("url") or ""),
+        source=str(item.get("source") or "News"),
+        published_at=published_at,
+        summary=summary,
+        category=category,
+        impact=impact,
+        relevance_score=relevance["relevance_score"],
+        ticker_sentiment_score=relevance["ticker_sentiment_score"],
+        ticker_sentiment_label=relevance["ticker_sentiment_label"],
+        overall_sentiment_score=_float_or_none(item.get("overall_sentiment_score")),
+        overall_sentiment_label=_optional_string(item.get("overall_sentiment_label")),
+        relevance_type=str(relevance["relevance_type"]),
+        is_scoreable=bool(relevance["is_scoreable"]) and impact > 0,
+        score_impact=int(relevance["score_impact"]) if impact > 0 else 0,
+        relevance_reason=str(relevance["relevance_reason"]),
+    )
+
+
+def classify_relevance(ticker: str, item: dict, title: str, summary: str = "") -> dict[str, object]:
+    key = ticker.upper()
+    text = _normalise_news_text(f"{title} {summary} {item.get('source', '')}")
+    sentiment = _target_sentiment(item, key)
+    relevance_score = _float_or_none(sentiment.get("relevance_score")) if sentiment else None
+    ticker_sentiment_score = _float_or_none(sentiment.get("ticker_sentiment_score")) if sentiment else None
+    ticker_sentiment_label = _optional_string(sentiment.get("ticker_sentiment_label")) if sentiment else None
+
+    context = get_ticker_context(key)
+    headline = _normalise_news_text(title)
+    headline_mentions_company = _mentions_direct_ticker(headline, key) or _mentions_alias(headline, context.aliases)
+    # Direct relevance comes from the provider's requested-ticker metadata; context only enriches sector matches.
+    if sentiment is not None and relevance_score is not None and relevance_score >= DIRECT_RELEVANCE_THRESHOLD:
+        # A current article can contain one background word such as "history". Only filter
+        # strong provider matches when the whole article looks like reference material.
+        if _is_evergreen_news(text):
+            return _relevance_result(
+                "ignored",
+                relevance_score,
+                ticker_sentiment_score,
+                ticker_sentiment_label,
+                "ignored: evergreen or background reference",
+            )
+        return _relevance_result(
+            "direct",
+            relevance_score,
+            ticker_sentiment_score,
+            ticker_sentiment_label,
+            "direct: target ticker relevance is high",
+        )
+
+    if sentiment is not None and headline_mentions_company:
+        return _relevance_result(
+            "direct",
+            relevance_score,
+            ticker_sentiment_score,
+            ticker_sentiment_label,
+            "direct: headline mentions the watched company and provider includes its ticker",
+        )
+
+    if not context.allow_sector_guessing:
+        # Unknown tickers intentionally do not receive weak sector inference.
+        return _relevance_result(
+            "ignored",
+            relevance_score,
+            ticker_sentiment_score,
+            ticker_sentiment_label,
+            "ignored: no ticker context and no direct ticker relevance",
+        )
+
+    if sentiment is not None and relevance_score is not None and relevance_score >= SECTOR_RELEVANCE_THRESHOLD:
+        return _relevance_result(
+            "sector_context",
+            relevance_score,
+            ticker_sentiment_score,
+            ticker_sentiment_label,
+            "display-only: provider associates the ticker, but headline does not establish direct company news",
+        )
+
+    if _mentions_peer(item, text, context.peers) or _mentions_alias(text, context.themes):
+        return _relevance_result(
+            "sector_context",
+            relevance_score,
+            ticker_sentiment_score,
+            ticker_sentiment_label,
+            "display-only: related peer or sector theme",
+        )
+
+    return _relevance_result(
+        "ignored",
+        relevance_score,
+        ticker_sentiment_score,
+        ticker_sentiment_label,
+        "ignored: low ticker relevance",
+    )
+
+
+def _relevance_result(
+    relevance_type: str,
+    relevance_score: float | None,
+    ticker_sentiment_score: float | None,
+    ticker_sentiment_label: str | None,
+    relevance_reason: str,
+    *,
+    score_impact: int = 0,
+) -> dict[str, object]:
+    return {
+        "relevance_type": relevance_type,
+        "relevance_score": relevance_score,
+        "ticker_sentiment_score": ticker_sentiment_score,
+        "ticker_sentiment_label": ticker_sentiment_label,
+        "is_scoreable": relevance_type == "direct" and score_impact > 0,
+        "score_impact": score_impact,
+        "relevance_reason": relevance_reason,
+    }
+
+
+def get_ticker_context(ticker: str) -> TickerContext:
+    key = ticker.upper()
+    return TICKER_CONTEXT.get(key, TickerContext(ticker=key))
+
+
+def _target_sentiment(item: dict, ticker: str) -> dict[str, object] | None:
+    for sentiment in item.get("ticker_sentiment", []):
+        if str(sentiment.get("ticker", "")).upper() == ticker:
+            return sentiment
+    return None
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_string(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _is_evergreen_news(text: str) -> bool:
+    if any(_normalise_news_text(term) in text for term in EVERGREEN_REFERENCE_TERMS):
+        return True
+    content_matches = sum(_normalise_news_text(term) in text for term in EVERGREEN_CONTENT_TERMS)
+    return content_matches >= 2
+
+
+def _mentions_direct_ticker(text: str, ticker: str) -> bool:
+    return _normalise_news_text(f"${ticker}") in text or _normalise_news_text(ticker) in text
+
+
+def _mentions_alias(text: str, aliases: tuple[str, ...]) -> bool:
+    return any(_normalise_news_text(alias) in text for alias in aliases)
+
+
+def _mentions_peer(item: dict, text: str, peers: tuple[str, ...]) -> bool:
+    mentioned_tickers = {str(sentiment.get("ticker", "")).upper() for sentiment in item.get("ticker_sentiment", [])}
+    if mentioned_tickers.intersection(peers):
+        return True
+    return any(_normalise_news_text(peer) in text or _normalise_news_text(f"${peer}") in text for peer in peers)
 
 
 def _article_matches_ticker(item: dict, ticker: str) -> bool:
