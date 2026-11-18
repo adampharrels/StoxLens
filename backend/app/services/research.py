@@ -1,8 +1,9 @@
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Any
 
-from fastapi import HTTPException
 import pandas as pd
+from fastapi import HTTPException
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -22,7 +23,7 @@ from app.services.market_data import (
     public_market_data_error,
 )
 from app.services.reports import latest_report, report_to_schema, save_report
-from app.services.signals import calculate_signals
+from app.services.signals import SignalResult, calculate_signals
 
 _memory_research_snapshots: dict[str, dict[str, Any]] = {}
 _FUNDAMENTAL_FIELDS = (
@@ -67,7 +68,7 @@ def _history(df) -> list[PricePoint]:
     ]
 
 
-def _signals_with_quality(df) -> dict[str, Any]:
+def _signals_with_quality(df: pd.DataFrame) -> SignalResult:
     signals = calculate_signals(df)
     quality = assess_data_quality(df)
     signals["data_quality_score"] = int(quality["score"])
@@ -115,7 +116,7 @@ def _merge_saved_metadata(saved: dict[str, Any], fresh: dict[str, Any], ticker: 
 def _build_response(
     ticker: str,
     df,
-    signals: dict,
+    signals: Mapping[str, Any],
     report,
     meta: dict[str, Any],
     *,
@@ -273,7 +274,7 @@ def saved_price_history(db: Session | None, ticker: str):
     )
 
 
-def _save_signal_snapshot(db: Session, ticker: str, signals: dict[str, Any]) -> models.SignalSnapshot:
+def _save_signal_snapshot(db: Session, ticker: str, signals: Mapping[str, Any]) -> models.SignalSnapshot:
     snapshot = models.SignalSnapshot(
         ticker=ticker.upper(),
         as_of_date=date.fromisoformat(str(signals["as_of_date"])),

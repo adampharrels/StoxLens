@@ -1,5 +1,6 @@
 import json
 import os
+from collections.abc import Mapping
 from typing import Any
 
 from app.schemas.research import BriefPayload
@@ -16,7 +17,7 @@ Focus on: what the data suggests, where signals may be weak, data quality limita
 Return only valid JSON. No preamble, no markdown, no explanation outside the JSON."""
 
 
-def build_prompt(ticker: str, signals: dict[str, Any], quality: dict[str, Any]) -> str:
+def build_prompt(ticker: str, signals: Mapping[str, Any], quality: dict[str, Any]) -> str:
     return f"""Generate a structured research brief for {ticker}.
 
 Signals:
@@ -37,7 +38,7 @@ Return JSON in this exact schema:
 }}"""
 
 
-def _fallback_brief(ticker: str, signals: dict[str, Any], quality: dict[str, Any]) -> dict[str, Any]:
+def _fallback_brief(ticker: str, signals: Mapping[str, Any], quality: dict[str, Any]) -> dict[str, Any]:
     positive = signals["momentum_score"] >= 4 and signals["trend_score"] >= 3
     weak = signals["momentum_score"] <= 2 or signals["risk_score"] <= 2
     overall = "Watchlist" if positive else "Weak Signal" if weak else "Needs Review"
@@ -47,7 +48,11 @@ def _fallback_brief(ticker: str, signals: dict[str, Any], quality: dict[str, Any
             "risk, and data-quality inputs. The signal set should be treated as screening evidence for analyst review."
         ),
         "positive_signals": [
-            "Price trend is above key moving-average thresholds" if signals["ma_signal"] == "above_both" else "Recent returns provide some support",
+            (
+                "Price trend is above key moving-average thresholds"
+                if signals["ma_signal"] == "above_both"
+                else "Recent returns provide some support"
+            ),
             f"12M return is {signals['return_12m'] * 100:.1f}%",
             f"Volume trend is {signals['volume_trend'] * 100:.1f}% versus the 90d average",
             f"RSI is not extreme at {signals['rsi']:.1f}",
@@ -89,11 +94,11 @@ def call_llm(prompt: str) -> str:
             system=SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
-        return message.content[0].text
+        return "".join(block.text for block in message.content if block.type == "text")
     except Exception:
         return ""
 
 
-def parse_and_validate_brief(response: str, ticker: str, signals: dict[str, Any], quality: dict[str, Any]) -> BriefPayload:
+def parse_and_validate_brief(response: str, ticker: str, signals: Mapping[str, Any], quality: dict[str, Any]) -> BriefPayload:
     payload = json.loads(response) if response else _fallback_brief(ticker, signals, quality)
     return BriefPayload.model_validate(payload)

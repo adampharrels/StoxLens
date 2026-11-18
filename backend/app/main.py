@@ -1,16 +1,25 @@
-from pathlib import Path
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from app.api.routes import candles, chart, compare, news, reports, research, triage, watchlist
 from app.db.session import init_db
 
-app = FastAPI(title="StoxLens", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(title="StoxLens", version="0.1.0", lifespan=lifespan)
 
 
 def _cors_origins() -> list[str]:
@@ -32,11 +41,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
 
 
 @app.get("/health")

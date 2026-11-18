@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
 from sqlalchemy import desc
@@ -6,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 from app.schemas.research import BriefPayload, ResearchReportOut, SignalSnapshotOut
+from app.timeutil import utcnow_naive
 
 _memory_reports: list[ResearchReportOut] = []
 
 
-def _signal_schema(signals: dict[str, Any]) -> SignalSnapshotOut:
+def _signal_schema(signals: Mapping[str, Any]) -> SignalSnapshotOut:
     return SignalSnapshotOut.model_validate(
         {
             "return_1m": signals["return_1m"],
@@ -35,7 +37,7 @@ def _signal_schema(signals: dict[str, Any]) -> SignalSnapshotOut:
 def save_report(
     db: Session | None,
     ticker: str,
-    signals: dict[str, Any],
+    signals: Mapping[str, Any],
     brief: BriefPayload,
     metadata: dict[str, str],
 ) -> models.ResearchReport | ResearchReportOut:
@@ -52,7 +54,7 @@ def save_report(
             overall_view=brief.overall_view,
             model_used=metadata["model_used"],
             prompt_version=metadata["prompt_version"],
-            created_at=datetime.utcnow(),
+            created_at=utcnow_naive(),
             signal_snapshot=_signal_schema(signals),
         )
         _memory_reports.append(report)
@@ -78,7 +80,7 @@ def save_report(
     )
     db.add(snapshot)
     db.flush()
-    report = models.ResearchReport(
+    db_report = models.ResearchReport(
         ticker=ticker.upper(),
         signal_snapshot_id=snapshot.id,
         summary=brief.summary,
@@ -91,10 +93,10 @@ def save_report(
         model_used=metadata["model_used"],
         prompt_version=metadata["prompt_version"],
     )
-    db.add(report)
+    db.add(db_report)
     db.commit()
-    db.refresh(report)
-    return report
+    db.refresh(db_report)
+    return db_report
 
 
 def latest_report(db: Session | None, ticker: str) -> models.ResearchReport | ResearchReportOut | None:

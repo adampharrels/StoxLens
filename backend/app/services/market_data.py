@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from requests import HTTPError
@@ -53,11 +53,11 @@ def public_market_data_error(exc: MarketDataError) -> str:
 def fetch_price_data(ticker: str) -> pd.DataFrame:
     key = ticker.upper()
     cached = _price_cache.get(key)
-    if cached and datetime.utcnow() - cached[0] < CACHE_TTL:
+    if cached and datetime.now(UTC) - cached[0] < CACHE_TTL:
         return cached[1].copy()
 
     df = _fetch_price_data(key)
-    _price_cache[key] = (datetime.utcnow(), df.copy())
+    _price_cache[key] = (datetime.now(UTC), df.copy())
     return df
 
 
@@ -171,7 +171,7 @@ def _int_value(values: dict, key: str) -> int | None:
 
 
 def _optional_float(value: object) -> float | None:
-    if value in (None, "", "None", "N/A", "-"):
+    if value in (None, "", "None", "N/A", "-") or not isinstance(value, int | float | str):
         return None
     try:
         return float(value)
@@ -290,14 +290,14 @@ def clean_price_data(df: pd.DataFrame) -> pd.DataFrame:
 def fetch_company_metadata(ticker: str) -> dict:
     key = ticker.upper()
     cached = _metadata_cache.get(key)
-    if cached and datetime.utcnow() - cached[0] < _metadata_cache_ttl(cached[1]):
+    if cached and datetime.now(UTC) - cached[0] < _metadata_cache_ttl(cached[1]):
         return cached[1].copy()
 
     info = _fetch_company_metadata_from_alphavantage(key) if _alphavantage_api_key() else {}
     if not info:
         info = _fetch_company_metadata_from_quote_api(key)
     if info:
-        _metadata_cache[key] = (datetime.utcnow(), info.copy())
+        _metadata_cache[key] = (datetime.now(UTC), info.copy())
         return info
 
     # Keep the last useful fundamentals instead of replacing them with a temporary provider miss.
@@ -319,7 +319,7 @@ def fetch_company_metadata(ticker: str) -> dict:
         "debt_to_equity": None,
         "dividend_yield": None,
     }
-    _metadata_cache[key] = (datetime.utcnow(), fallback.copy())
+    _metadata_cache[key] = (datetime.now(UTC), fallback.copy())
     return fallback
 
 
@@ -413,7 +413,7 @@ def _fetch_company_metadata_from_quote_api(ticker: str) -> dict:
     }
 
 
-def assess_data_quality(df: pd.DataFrame) -> dict[str, int | bool | str]:
+def assess_data_quality(df: pd.DataFrame) -> dict[str, int | float | bool | str]:
     expected = len(pd.bdate_range(start=df.index.min(), end=df.index.max()))
     missing = max(expected - len(df), 0)
     completeness = round(len(df) / expected, 4) if expected else 0
@@ -430,5 +430,5 @@ def assess_data_quality(df: pd.DataFrame) -> dict[str, int | bool | str]:
         "adjusted_prices": "Adj Close" in df.columns,
         "trading_days": len(df),
         "score": max(score, 1),
-        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }

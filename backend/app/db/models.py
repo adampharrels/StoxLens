@@ -5,6 +5,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
+from app.timeutil import utcnow_naive
+
 
 class Base(DeclarativeBase):
     pass
@@ -31,7 +33,7 @@ class Company(Base):
     profit_margin: Mapped[float | None] = mapped_column(Float, nullable=True)
     debt_to_equity: Mapped[float | None] = mapped_column(Float, nullable=True)
     dividend_yield: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
 
 
 class PriceHistory(Base):
@@ -68,7 +70,7 @@ class SignalSnapshot(Base):
     trend_score: Mapped[int] = mapped_column(Integer)
     risk_score: Mapped[int] = mapped_column(Integer)
     data_quality_score: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     reports: Mapped[list["ResearchReport"]] = relationship(back_populates="signal_snapshot")
 
 
@@ -87,7 +89,7 @@ class ResearchReport(Base):
     overall_view: Mapped[str] = mapped_column(String(24))
     model_used: Mapped[str] = mapped_column(String(80))
     prompt_version: Mapped[str] = mapped_column(String(16))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     signal_snapshot: Mapped[SignalSnapshot] = relationship(back_populates="reports")
 
 
@@ -102,7 +104,7 @@ class WatchlistItem(Base):
     last_check_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_check_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
 
 
 class TriageSnapshot(Base):
@@ -122,4 +124,4 @@ class TriageSnapshot(Base):
     volume_ratio: Mapped[float] = mapped_column(Float, default=1.0, server_default=text("1"), nullable=False)
     rsi: Mapped[float] = mapped_column(Float)
     moving_average_status: Mapped[str] = mapped_column(String(24))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)

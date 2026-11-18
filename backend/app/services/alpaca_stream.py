@@ -1,6 +1,6 @@
+import asyncio
 import json
 import os
-import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 

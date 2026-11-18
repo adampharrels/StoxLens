@@ -1,11 +1,23 @@
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 from app.db import models
 
-WatchlistRecord = dict[str, str | datetime | None]
+
+class WatchlistRecord(TypedDict):
+    ticker: str
+    created_at: datetime
+    signal: str
+    watch_reason: str
+    main_risk: str
+    change_my_mind: str
+    last_check_status: str | None
+    last_check_message: str | None
+    last_checked_at: datetime | None
+
 
 _memory_watchlist: dict[str, WatchlistRecord] = {}
 
@@ -47,8 +59,7 @@ def _record(
 
 
 def _created_at(record: WatchlistRecord | None) -> datetime:
-    value = record["created_at"] if record else None
-    return value if isinstance(value, datetime) else _now()
+    return record["created_at"] if record else _now()
 
 
 def _model_record(item: models.WatchlistItem) -> WatchlistRecord:
@@ -108,12 +119,12 @@ def add_watchlist_item(
         )
         return _memory_watchlist[normalised]
 
-    existing = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == normalised).first()
-    if existing:
-        _set_notes(existing, watch_reason=watch_reason, main_risk=main_risk, change_my_mind=change_my_mind)
+    existing_item = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == normalised).first()
+    if existing_item:
+        _set_notes(existing_item, watch_reason=watch_reason, main_risk=main_risk, change_my_mind=change_my_mind)
         db.commit()
-        db.refresh(existing)
-        return _model_record(existing)
+        db.refresh(existing_item)
+        return _model_record(existing_item)
 
     item = models.WatchlistItem(ticker=normalised)
     _set_notes(item, watch_reason=watch_reason, main_risk=main_risk, change_my_mind=change_my_mind)
@@ -152,14 +163,14 @@ def update_watchlist_item(
         return _memory_watchlist[updated]
 
     item = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == current).first()
-    existing = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == updated).first()
-    if existing and existing is not item:
-        _set_notes(existing, watch_reason=watch_reason, main_risk=main_risk, change_my_mind=change_my_mind)
+    existing_item = db.query(models.WatchlistItem).filter(models.WatchlistItem.ticker == updated).first()
+    if existing_item and existing_item is not item:
+        _set_notes(existing_item, watch_reason=watch_reason, main_risk=main_risk, change_my_mind=change_my_mind)
         if item:
             db.delete(item)
         db.commit()
-        db.refresh(existing)
-        return _model_record(existing)
+        db.refresh(existing_item)
+        return _model_record(existing_item)
 
     if item is None:
         return add_watchlist_item(db, updated, watch_reason=watch_reason, main_risk=main_risk, change_my_mind=change_my_mind)

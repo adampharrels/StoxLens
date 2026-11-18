@@ -6,16 +6,16 @@ from sqlalchemy.dialects import sqlite
 from sqlalchemy.schema import CreateTable
 from starlette.websockets import WebSocketDisconnect
 
-from app.api.routes import compare as compare_route
 from app.api.routes import candles as candles_route
+from app.api.routes import compare as compare_route
 from app.db import models
 from app.main import app
 from app.services import market_data as market_data_service
-from app.services.alpaca_stream import alpaca_stream_url, parse_alpaca_bar, public_alpaca_stream_error
 from app.services import news as news_service
 from app.services import research as research_service
 from app.services import triage as triage_service
 from app.services import watchlist as watchlist_service
+from app.services.alpaca_stream import alpaca_stream_url, parse_alpaca_bar, public_alpaca_stream_error
 from app.services.market_data import InsufficientPriceDataError, MarketDataError, RateLimitError, TickerNotFoundError
 from app.services.news import NewsArticle, _article_matches_ticker, classify_news
 from app.services.rate_limit import clear_rate_limits
@@ -184,7 +184,7 @@ def test_metadata_keeps_last_success_when_refresh_is_empty(monkeypatch) -> None:
         "dividend_yield": 0.005,
     }
     market_data_service._metadata_cache["AAPL"] = (
-        datetime.utcnow() - market_data_service.CACHE_TTL - timedelta(seconds=1),
+        datetime.now(UTC) - market_data_service.CACHE_TTL - timedelta(seconds=1),
         useful_metadata,
     )
     monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test")
@@ -433,7 +433,7 @@ def test_generate_research_is_rate_limited(monkeypatch) -> None:
             "price_change_pct": 0.01,
             "fundamentals": {},
             "data_source": "test",
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(UTC).isoformat(),
             "trading_days": 280,
             "prompt_version": "test",
             "model_used": "test",
@@ -808,7 +808,7 @@ def test_get_triage_reads_saved_snapshot_without_fetching(monkeypatch) -> None:
             "volume_ratio": 1.8,
             "rsi": 55.0,
             "moving_average_status": "above_both",
-            "created_at": datetime(2026, 8, 14, 9, 0),
+            "created_at": datetime(2026, 8, 14, 9, 0),  # noqa: DTZ001 - legacy rows were stored naive
         }
     ]
 

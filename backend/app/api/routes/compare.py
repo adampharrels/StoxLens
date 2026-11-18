@@ -10,14 +10,14 @@ from app.services.market_data import (
     fetch_price_data,
     public_market_data_error,
 )
-from app.services.signals import calculate_signals
+from app.services.signals import SignalResult, calculate_signals
 
 router = APIRouter()
 
 
 @router.get("")
-def compare(tickers: str = "AAPL") -> dict[str, dict]:
-    result: dict[str, dict] = {}
+def compare(tickers: str = "AAPL") -> dict[str, SignalResult]:
+    result: dict[str, SignalResult] = {}
     ticker_list = [item.strip().upper() for item in tickers.split(",") if item.strip()]
     if not ticker_list:
         raise HTTPException(status_code=422, detail="At least one ticker is required.")

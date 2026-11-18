@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from math import sqrt
 
@@ -89,7 +90,7 @@ def _issue_item(
 ) -> TriageItemOut:
     return TriageItemOut(
         ticker=ticker.upper(),
-        status=status,  # type: ignore[arg-type]
+        status=status,
         issue_message=message,
         last_checked_at=checked_at,
         watch_note=_watch_note(ticker, watch_note),
@@ -125,13 +126,13 @@ def score_ticker(
 
     ma_50 = close.rolling(50, min_periods=20).mean()
     ma_200 = close.rolling(200, min_periods=100).mean()
-    ma_50_current = float(ma_50.iloc[-1]) if pd.notna(ma_50.iloc[-1]) else current
-    ma_200_current = float(ma_200.iloc[-1]) if pd.notna(ma_200.iloc[-1]) else current
-    ma_50_previous = float(ma_50.iloc[-2]) if len(ma_50) > 1 and pd.notna(ma_50.iloc[-2]) else ma_50_current
-    ma_200_previous = float(ma_200.iloc[-2]) if len(ma_200) > 1 and pd.notna(ma_200.iloc[-2]) else ma_200_current
+    ma_50_current: float = float(ma_50.iloc[-1]) if pd.notna(ma_50.iloc[-1]) else current
+    ma_200_current: float = float(ma_200.iloc[-1]) if pd.notna(ma_200.iloc[-1]) else current
+    ma_50_previous: float = float(ma_50.iloc[-2]) if len(ma_50) > 1 and pd.notna(ma_50.iloc[-2]) else ma_50_current
+    ma_200_previous: float = float(ma_200.iloc[-2]) if len(ma_200) > 1 and pd.notna(ma_200.iloc[-2]) else ma_200_current
 
     rolling_vol = daily_returns.rolling(30, min_periods=20).std() * sqrt(252)
-    vol_current = float(rolling_vol.iloc[-1]) if pd.notna(rolling_vol.iloc[-1]) else float(signals["volatility_30d"])
+    vol_current: float = float(rolling_vol.iloc[-1]) if pd.notna(rolling_vol.iloc[-1]) else float(signals["volatility_30d"])
     vol_percentile = _percentile(rolling_vol.tail(252), vol_current)
 
     abs_return = abs(price_change_pct)
@@ -178,7 +179,8 @@ def score_ticker(
         reasons.append(_reason("volume_surge", "Volume surge", f"Latest volume is {volume_ratio:.1f}x the 90-day average.", 2))
 
     if normal_move > 0 and abs_return >= normal_move:
-        reasons.append(_reason("abnormal_move", "Abnormal daily move", f"Latest move of {_pct(price_change_pct)} is larger than normal.", 2))
+        detail = f"Latest move of {_pct(price_change_pct)} is larger than normal."
+        reasons.append(_reason("abnormal_move", "Abnormal daily move", detail, 2))
 
     if int(signals["data_quality_score"]) < 4:
         reasons.append(_reason("data_quality", "Data quality", "Market data quality is below the preferred threshold.", 2))
@@ -239,6 +241,22 @@ def _snapshot_value(snapshot: models.TriageSnapshot | dict[str, object], key: st
     return getattr(snapshot, key) if isinstance(snapshot, models.TriageSnapshot) else snapshot.get(key)
 
 
+def _as_float(value: object, default: float = 0.0) -> float:
+    # Snapshot fields come from JSON or legacy rows, so accept numeric strings and fall back on anything else.
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    return int(_as_float(value, float(default)))
+
+
 def _snapshot_datetime(value: object) -> datetime | None:
     if isinstance(value, datetime):
         parsed = value
@@ -282,7 +300,7 @@ def _latest_snapshot(db: Session | None, ticker: str) -> models.TriageSnapshot |
     )
 
 
-def _latest_snapshots(db: Session | None, ticker: str, limit: int = 2) -> list[models.TriageSnapshot | dict[str, object]]:
+def _latest_snapshots(db: Session | None, ticker: str, limit: int = 2) -> Sequence[models.TriageSnapshot | dict[str, object]]:
     key = ticker.upper()
     if db is None:
         snapshots = _memory_triage_snapshots.get(key, [])
@@ -307,10 +325,10 @@ def _ma_label(value: object) -> str:
 
 
 def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None, item: TriageItemOut) -> TriageChangeOut | None:
-    if previous is None:
+    if previous is None or item.attention_score is None:
         return None
 
-    previous_score = int(_snapshot_value(previous, "attention_score") or 0)
+    previous_score = _as_int(_snapshot_value(previous, "attention_score"))
     previous_severity = str(_snapshot_value(previous, "severity") or "Low")
     previous_created_at = _snapshot_datetime(_snapshot_value(previous, "created_at"))
     previous_reason_codes = {str(reason.get("code")) for reason in _snapshot_reasons(previous) if isinstance(reason, dict)}
@@ -351,7 +369,7 @@ def _snapshot_changes(previous: models.TriageSnapshot | dict[str, object] | None
 
     return TriageChangeOut(
         previous_attention_score=previous_score,
-        previous_severity=previous_severity,  # type: ignore[arg-type]
+        previous_severity=previous_severity,
         previous_created_at=previous_created_at,
         score_delta=score_delta,
         severity_changed=previous_severity != item.severity,
@@ -433,7 +451,7 @@ def _snapshot_item(
             code=str(reason.get("code", "")),
             label=str(reason.get("label", "")),
             detail=str(reason.get("detail", "")),
-            impact=int(reason.get("impact", 1)),
+            impact=_as_int(reason.get("impact"), 1),
         )
         for reason in _snapshot_reasons(snapshot)
         if isinstance(reason, dict)
@@ -452,24 +470,24 @@ def _snapshot_item(
                 source=str(article.get("source", "News")),
                 published_at=published_at,
                 category=str(article.get("category", "")),
-                impact=int(article.get("impact", 1)),
+                impact=_as_int(article.get("impact"), 1),
             )
         )
 
     return TriageItemOut(
         ticker=ticker,
-        attention_score=int(_snapshot_value(snapshot, "attention_score") or 0),
-        severity=str(_snapshot_value(snapshot, "severity") or "Low"),  # type: ignore[arg-type]
-        price=float(_snapshot_value(snapshot, "price") or 0.0),
-        price_change_pct=float(_snapshot_value(snapshot, "price_change_pct") or 0.0),
+        attention_score=_as_int(_snapshot_value(snapshot, "attention_score")),
+        severity=str(_snapshot_value(snapshot, "severity") or "Low"),
+        price=_as_float(_snapshot_value(snapshot, "price")),
+        price_change_pct=_as_float(_snapshot_value(snapshot, "price_change_pct")),
         as_of_date=_snapshot_date(_snapshot_value(snapshot, "as_of_date"), generated_at.date()),
         reasons=reasons,
         news=news,
         metrics={
-            "volume": float(_snapshot_value(snapshot, "volume") or 0.0),
-            "volatility_percentile": float(_snapshot_value(snapshot, "volatility_percentile") or 0.0),
-            "volume_ratio": float(_snapshot_value(snapshot, "volume_ratio") or 1.0),
-            "rsi": float(_snapshot_value(snapshot, "rsi") or 0.0),
+            "volume": _as_float(_snapshot_value(snapshot, "volume")),
+            "volatility_percentile": _as_float(_snapshot_value(snapshot, "volatility_percentile")),
+            "volume_ratio": _as_float(_snapshot_value(snapshot, "volume_ratio") or 1.0),
+            "rsi": _as_float(_snapshot_value(snapshot, "rsi")),
             "ma_signal": str(_snapshot_value(snapshot, "moving_average_status") or ""),
         },
         watch_note=_watch_note(ticker, watch_note),

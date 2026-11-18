@@ -264,15 +264,21 @@ Backend checks:
 
 ```bash
 cd backend
+ruff check .
+mypy
 python -m compileall app
-python -m pytest
+python -m pytest --cov=app
 ```
+
+CI fails if backend coverage drops below 65%.
 
 Frontend checks:
 
 ```bash
 cd frontend
+npm run lint
 npm run type-check
+npm test
 npm run build
 ```
 

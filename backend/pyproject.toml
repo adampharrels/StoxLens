@@ -1,0 +1,26 @@
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "DTZ"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency markers are evaluated once by design.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
+[tool.ruff.lint.per-file-ignores]
+# main.py loads .env before importing route modules that read env vars at import time.
+"app/main.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["app"]
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["websockets.*"]
+ignore_missing_imports = true
