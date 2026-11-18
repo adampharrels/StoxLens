@@ -144,7 +144,7 @@ export function TriageTable({ items }: { items: TriageItem[] }) {
                       <div className="text-secondary">{watchNote.change_my_mind}</div>
                     </>
                   )}
-                  <div className="label">Today's alert</div>
+                  <div className="label">Today&apos;s alert</div>
                   <div className="text-secondary">{primaryAlert(item)}</div>
                   <div className="label">Research question</div>
                   <div className="text-secondary">{researchQuestion(item, watchNote)}</div>
