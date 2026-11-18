@@ -35,6 +35,11 @@ def _percentile(series: pd.Series, value: float) -> float:
     return float((clean <= value).mean())
 
 
+def _current_drawdown(close: pd.Series) -> float:
+    peak = float(close.tail(252).max())
+    return float(close.iloc[-1] / peak - 1) if peak else 0.0
+
+
 def _reason(code: str, label: str, detail: str, impact: int) -> TriageReasonOut:
     return TriageReasonOut(code=code, label=label, detail=detail, impact=impact)
 
@@ -156,8 +161,18 @@ def score_ticker(
     if vol_percentile >= 0.9:
         reasons.append(_reason("vol_spike", "Volatility spike", f"30-day volatility is in the {_pct(vol_percentile)} percentile.", 3))
 
-    if float(signals["max_drawdown"]) <= -0.2:
-        reasons.append(_reason("drawdown", "Large drawdown", f"Drawdown is {_pct(float(signals['max_drawdown']))}.", 3))
+    # Use today's distance from the 252-day peak, not the worst point in the window: a stock that
+    # fell months ago and has since recovered should not keep raising its attention score.
+    current_drawdown = _current_drawdown(close)
+    if current_drawdown <= -0.2:
+        reasons.append(
+            _reason(
+                "drawdown",
+                "Large drawdown",
+                f"Price is {_pct(current_drawdown)} below its {len(close.tail(252))}-day high.",
+                3,
+            )
+        )
 
     if volume_ratio >= 1.5:
         reasons.append(_reason("volume_surge", "Volume surge", f"Latest volume is {volume_ratio:.1f}x the 90-day average.", 2))
@@ -183,6 +198,7 @@ def score_ticker(
         "volatility_30d": float(signals["volatility_30d"]),
         "volatility_percentile": vol_percentile,
         "max_drawdown": float(signals["max_drawdown"]),
+        "current_drawdown": current_drawdown,
         "rsi": rsi,
         "volume": latest_volume,
         "volume_ratio": volume_ratio,
